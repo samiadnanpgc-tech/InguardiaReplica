@@ -13,12 +13,14 @@
     "@react-native/new-app-screen": "0.88.0",
     "react": "19.3.0",
     "react-native": "0.88.0",
-    "react-native-safe-area-context": "^5.5.2"
+    "react-native-ble-plx": "^3.5.1",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-svg": "^15.16.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
-    "@babel/runtime": "^7.25.0",
+    "@babel/runtime": "^7.29.10",
     "@react-native-community/cli": "20.2.0",
     "@react-native-community/cli-platform-android": "20.2.0",
     "@react-native-community/cli-platform-ios": "20.2.0",
