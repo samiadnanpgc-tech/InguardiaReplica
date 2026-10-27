@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { BleManager } from 'react-native-ble-plx';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const bleManager = new BleManager();
 
@@ -139,13 +140,29 @@ export default function App() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2200); };
 
+  const saveToHistory = async (newData) => {
+    setLiveData(newData);
+    try {
+      const existingDataStr = await AsyncStorage.getItem('@inguardia_history');
+      let history = existingDataStr ? JSON.parse(existingDataStr) : [];
+      history.push({ ...newData, timestamp: Date.now() });
+      if (history.length > 50) history = history.slice(history.length - 50);
+      await AsyncStorage.setItem('@inguardia_history', JSON.stringify(history));
+    } catch (e) { console.error("History save error:", e); }
+  };
+
+  const handleDisconnect = () => {
+    bleManager.cancelDeviceConnection(); 
+    setPhase('setup'); 
+  };
+
   return (
     <SafeAreaView style={st.root}>
       <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
       {phase === 'setup' && (
         <SetupFlow 
           onComplete={() => setPhase('app')} 
-          onDataReceived={(d) => setLiveData(d)} 
+          onDataReceived={saveToHistory}
           onDebug={setDebugText} 
         />
       )}
@@ -153,7 +170,7 @@ export default function App() {
         <View style={{ flex: 1 }}>
           {screen === 'live' && <LiveScreen data={liveData} debugText={debugText} />}
           {screen === 'history' && <HistoryScreen />}
-          {screen === 'device' && <DeviceScreen toast={showToast} />}
+          {screen === 'device' && <DeviceScreen data={liveData} toast={showToast} onDisconnect={handleDisconnect} />}
           <BottomNav active={screen} onChange={setScreen} />
         </View>
       )}
@@ -179,7 +196,6 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
     if (step === 2) {
       setPairing(true);
       setFoundDevices([]);
-      
       const requestAndScan = async () => {
         if (Platform.OS === 'android' && Platform.Version >= 31) {
           const granted = await PermissionsAndroid.requestMultiple([
@@ -220,7 +236,6 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
       const connectedDevice = await bleManager.connectToDevice(device.id, { timeout: 15000 });
       onDebug("Connected! Discovering services...");
       await connectedDevice.requestMTU(185);
-      
       await connectedDevice.discoverAllServicesAndCharacteristics();
       
       const services = await connectedDevice.services();
@@ -239,31 +254,23 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
           }
         }
       }
-      
       onDebug(debugMsg); 
       
       if (targetChar) {
-        onDebug(`Monitoring: ${targetChar}`);
         bleManager.monitorCharacteristicForDevice(
           connectedDevice.id, targetService, targetChar, 
           (err, char) => {
-            if (err) { 
-              onDebug(`Monitor Err: ${err.message}`); 
-              return; 
-            }
+            if (err) { onDebug(`Monitor Err: ${err.message}`); return; }
             if (char?.value) {
               const bytes = base64ToBytes(char.value);
               onDebug(`RAW: [${bytes.join(', ')}]`);
-              
-              // --- ASLI DECODE LOGIC (Aapke data ke mutabiq) ---
               if (bytes.length >= 18) {
                 const hr = bytes[8];
                 const spo = bytes[9];
-                const temp = (bytes[10] | (bytes[11] << 8)) / 100.0; // 57 + (14 * 256) = 3641 / 100 = 36.41
-                const biteCount = bytes[12] | (bytes[13] << 8);       // 30 + (1 * 256) = 286
+                const temp = (bytes[10] | (bytes[11] << 8)) / 100.0; 
+                const biteCount = bytes[12] | (bytes[13] << 8);       
                 const battery = bytes[16];
                 const movement = bytes[17];
-                
                 onDataReceived({ hr, spo, temp, bites: biteCount, battery, movement });
               }
             }
@@ -272,13 +279,7 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
       } else {
         onDebug("No Notifiable Characteristic found!");
       }
-
-      setTimeout(() => { 
-        setConnectingDeviceId(null); 
-        setBites(0); 
-        setStep(3); 
-      }, 700);
-
+      setTimeout(() => { setConnectingDeviceId(null); setBites(0); setStep(3); }, 700);
     } catch (err) {
       onDebug(`Error: ${err.message}`);
       setConnectingDeviceId(null);
@@ -357,8 +358,16 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
             <View style={[st.calibRing, { borderTopColor: bites >= 1 ? C.sea : C.line, borderRightColor: bites >= 2 ? C.sea : C.line, borderBottomColor: bites >= 3 ? C.sea : C.line, borderLeftColor: bites >= 3 ? C.sea : C.line }]} />
             <View style={st.calibInner}><Text style={st.calibNumber}>{bites}</Text><Text style={st.calibLabel}>of 3 bites</Text></View>
           </View>
-          <TouchableOpacity style={[st.btnPrimary, bites < 3 && { backgroundColor: '#EEF1F0' }]} disabled={bites < 3} onPress={onComplete}><Text style={[st.btnPrimaryText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text></TouchableOpacity>
-          <TouchableOpacity style={st.btnText} onPress={onComplete}><Text style={st.btnTextLabel}>Skip for now</Text></TouchableOpacity>
+          
+          {/* 🚨 CHANGE: Ab dono buttons bilkul same (outline) hain 🚨 */}
+          <TouchableOpacity style={[st.btnOutline, bites < 3 && { borderColor: '#C9D8D1' }]} disabled={bites < 3} onPress={onComplete}>
+            <Text style={[st.btnOutlineText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={st.btnOutline} onPress={onComplete}>
+            <Text style={st.btnOutlineText}>Skip for now</Text>
+          </TouchableOpacity>
+
         </ScrollView>
       )}
 
@@ -375,7 +384,6 @@ function LiveScreen({ data, debugText }) {
     <ScrollView contentContainerStyle={st.scroll}>
       <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>Live monitor</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Real-time Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
       
-      {/* DEBUG CONSOLE ON SCREEN */}
       <View style={{ backgroundColor: '#000', padding: 10, borderRadius: 10, marginBottom: 10 }}>
         <Text style={{ color: '#0f0', fontFamily: 'monospace', fontSize: 10 }}>
           {debugText}
@@ -386,7 +394,7 @@ function LiveScreen({ data, debugText }) {
         <View style={st.ovTL}><Text style={st.ovTLText}>Connected <Text style={{ opacity: 0.6 }}>FW 2.4.1</Text></Text></View>
         <View style={st.ovTR}><View style={st.pillDk}><View style={st.battMini}><View style={[st.battMiniFill, { width: `${battery}%` }]} /></View><Text style={st.battTxt}>{battery}%</Text></View></View>
         <Device3D />
-        <View style={st.ovBL}><View style={st.pillDk}><Text style={st.streamTxt}>Streaming · 1 Hz</Text></View></View>
+        <Text style={st.ovBR}>Drag to rotate</Text>
       </View>
 
       <View style={st.card}>
@@ -430,6 +438,112 @@ function LiveScreen({ data, debugText }) {
   );
 }
 
+function HistoryScreen() {
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const data = await AsyncStorage.getItem('@inguardia_history');
+        if (data) setHistory(JSON.parse(data).reverse());
+      } catch (e) { console.log(e); }
+    };
+    loadHistory();
+  }, []);
+
+  const avgHr = history.length ? Math.round(history.reduce((acc, curr) => acc + curr.hr, 0) / history.length) : 0;
+  const avgSpo = history.length ? Math.round(history.reduce((acc, curr) => acc + curr.spo, 0) / history.length) : 0;
+  const avgTemp = history.length ? (history.reduce((acc, curr) => acc + curr.temp, 0) / history.length).toFixed(1) : '0.0';
+  const totalBites = history.length ? history[0].bites : 0;
+
+  return (
+    <ScrollView contentContainerStyle={st.scroll}>
+      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Saved Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
+      
+      <View style={st.miniRow}>
+        <View style={st.mini}><Text style={st.miniLabel}>Avg Heart Rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View></View>
+        <View style={st.mini}><Text style={st.miniLabel}>Avg SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgSpo}</Text><Text style={st.miniUnit}>%</Text></View></View>
+      </View>
+      
+      <View style={st.miniRow}>
+        <View style={st.mini}><Text style={st.miniLabel}>Total Bites</Text><Text style={st.miniValue}>{totalBites}</Text></View>
+        <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp}</Text><Text style={st.miniUnit}>°C</Text></View></View>
+      </View>
+
+      <Text style={st.sect}>RECENT READINGS</Text>
+      <View style={st.list}>
+        {history.length === 0 ? (
+          <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle connect karein.</Text>
+        ) : (
+          history.map((item, index) => {
+            const date = new Date(item.timestamp);
+            const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+            return (
+              <View key={index} style={st.rowItem}>
+                <View style={st.sessionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>{timeStr}</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={st.rowTitle}>HR: {item.hr} | SpO2: {item.spo}%</Text>
+                  <Text style={st.rowSub}>Temp: {item.temp.toFixed(1)}°C | Bites: {item.bites}</Text>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
+      <View style={{ height: 20 }} />
+    </ScrollView>
+  );
+}
+
+function DeviceScreen({ toast, data, onDisconnect }) {
+  const [live, setLive] = useState(true);
+  const [clench, setClench] = useState(true);
+  const { battery, hr, temp } = data;
+
+  return (
+    <ScrollView contentContainerStyle={st.scroll}>
+      <View style={st.appbar}>
+        <Text style={[st.appTitle, { flex: 1 }]}>Device</Text>
+        <View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Connected</Text></View>
+        <TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity>
+      </View>
+      
+      <View style={st.devHero}>
+        <View style={st.devHeroIcon}><Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold' }}>IG</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.devHeroTitle}>Connected Board</Text>
+          <Text style={st.devHeroSub}>Hardware Connection</Text>
+          <Text style={st.devHeroSub}>Active</Text>
+        </View>
+      </View>
+
+      <View style={st.stats3}>
+        <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{battery}%</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Heart Rate</Text><Text style={st.stat3Value}>{hr} bpm</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Temp</Text><Text style={st.stat3Value}>{temp ? temp.toFixed(1) : 0}°C</Text></View>
+      </View>
+
+      <Text style={st.sect}>ACTIONS</Text>
+      <View style={st.list}>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Ring light is blinking')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Fin</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Find my device</Text><Text style={st.rowSub}>Blinks the green light for 5 s</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Recalibrating…')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Cal</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Recalibrate sensors</Text><Text style={st.rowSub}>Last calibrated today, 9:41</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
+      </View>
+
+      <Text style={st.sect}>SETTINGS</Text>
+      <View style={st.list}>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+      </View>
+
+      <TouchableOpacity style={{ marginTop: 20, height: 48, borderRadius: 24, backgroundColor: '#FFE5E5', alignItems: 'center', justifyContent: 'center' }} onPress={onDisconnect}>
+        <Text style={{ color: '#D92D20', fontWeight: 'bold', fontSize: 14 }}>Disconnect Device</Text>
+      </TouchableOpacity>
+
+      <View style={{ height: 30 }} />
+    </ScrollView>
+  );
+}
+
 function Device3D() {
   const floatY = useRef(new Animated.Value(0)).current;
   const ledOpacity = useRef(new Animated.Value(1)).current;
@@ -455,52 +569,6 @@ function Device3D() {
   );
 }
 
-function HistoryScreen() {
-  const [range, setRange] = useState('day');
-  const data = { day: { avg: 68, spo: 95, bites: '412', temp: 36.7, n: 24 }, week: { avg: 70, spo: 94, bites: '2,604', temp: 36.8, n: 7 }, month: { avg: 69, spo: 94, bites: '11,380', temp: 36.7, n: 30 } }[range];
-  const bars = Array.from({ length: data.n }, (_, i) => range === 'day' ? (i < 7 ? 40 + Math.random() * 40 : 10 + Math.random() * 20) : 30 + Math.random() * 60);
-  const maxBar = Math.max(...bars);
-
-  return (
-    <ScrollView contentContainerStyle={st.scroll}>
-      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Connected</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
-      <View style={st.seg}>{['day', 'week', 'month'].map(r => (<TouchableOpacity key={r} style={[st.segBtn, range === r && st.segBtnOn]} onPress={() => setRange(r)}><Text style={[st.segText, range === r && st.segTextOn]}>{r === 'day' ? 'Day' : r === 'week' ? 'Week' : 'Month'}</Text></TouchableOpacity>))}</View>
-      <View style={st.miniRow}><View style={st.mini}><Text style={st.miniLabel}>Avg heart rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{data.avg}</Text><Text style={st.miniUnit}>bpm</Text></View></View><View style={st.mini}><Text style={st.miniLabel}>Lowest SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{data.spo}</Text><Text style={st.miniUnit}>%</Text></View></View></View>
-      <View style={st.miniRow}><View style={st.mini}><Text style={st.miniLabel}>Bites</Text><Text style={st.miniValue}>{data.bites}</Text></View><View style={st.mini}><Text style={st.miniLabel}>Avg temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{data.temp.toFixed(1)}</Text><Text style={st.miniUnit}>°C</Text></View></View></View>
-      <View style={st.hcard}><View style={st.ch}><Text style={st.chTitle}>Bites</Text><Text style={st.chAside}>{range === 'day' ? 'most between 00:00 and 07:00' : 'darker = busiest'}</Text></View><View style={st.hBars}>{bars.map((v, i) => (<View key={i} style={[st.hBar, { height: `${(v / maxBar) * 100}%`, backgroundColor: v > maxBar * 0.75 ? C.sea : '#9ED9BC' }]} />))}</View></View>
-      <Text style={st.sect}>RECENT SESSIONS</Text>
-      <View style={st.list}>{[{ t: 'Last night', sub: '23:10 – 06:52 · 7 h 42 m · 212 bites', ok: true }, { t: 'Mon 21 Sep', sub: '23:40 – 07:05 · 7 h 25 m · 188 bites', ok: true }, { t: 'Sun 20 Sep', sub: '00:15 – 06:30 · 6 h 15 m · 341 bites', ok: false }].map((it, i) => (<View key={i} style={st.rowItem}><View style={st.sessionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>N</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>{it.t}</Text><Text style={st.rowSub}>{it.sub}</Text></View><Text style={[st.stReady, !it.ok && { color: '#C07A12' }]}>{it.ok ? 'Normal' : 'High bites'}</Text></View>))}</View>
-      <View style={{ height: 20 }} />
-    </ScrollView>
-  );
-}
-
-function DeviceScreen({ toast }) {
-  const [live, setLive] = useState(true);
-  const [clench, setClench] = useState(true);
-  const [autoSync, setAutoSync] = useState(false);
-  const [rate, setRate] = useState('25');
-  const [unit, setUnit] = useState('C');
-  return (
-    <ScrollView contentContainerStyle={st.scroll}>
-      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>Device</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Connected</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
-      <View style={st.devHero}><View style={st.devHeroIcon}><Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold' }}>IG</Text></View><View style={{ flex: 1 }}><Text style={st.devHeroTitle}>Connected Board</Text><Text style={st.devHeroSub}>Hardware Connection</Text><Text style={st.devHeroSub}>Active · −48 dBm</Text></View></View>
-      <View style={st.stats3}><View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>82%</Text></View><View style={st.stat3}><Text style={st.stat3Label}>Firmware</Text><Text style={st.stat3Value}>2.4.1</Text></View><View style={st.stat3}><Text style={st.stat3Label}>Storage</Text><Text style={st.stat3Value}>64%</Text></View></View>
-      <Text style={st.sect}>ACTIONS</Text>
-      <View style={st.list}>
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Ring light is blinking')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Fin</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Find my device</Text><Text style={st.rowSub}>Blinks the green light for 5 s</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Recalibrating…')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Cal</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Recalibrate sensors</Text><Text style={st.rowSub}>Last calibrated today, 9:41</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
-      </View>
-      <Text style={st.sect}>SETTINGS</Text>
-      <View style={st.list}>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
-      </View>
-      <View style={{ height: 30 }} />
-    </ScrollView>
-  );
-}
-
 function BottomNav({ active, onChange }) {
   const items = [{ key: 'live', label: 'Live', icon: '~' }, { key: 'history', label: 'History', icon: 'H' }, { key: 'device', label: 'Device', icon: 'D' }];
   return (
@@ -509,7 +577,7 @@ function BottomNav({ active, onChange }) {
 }
 
 const rp = StyleSheet.create({ ring: { position: 'absolute', width: 90, height: 90, borderRadius: 45, borderWidth: 1.5, borderColor: '#2E8B57' } });
-const wave = StyleSheet.create({ wrap: { position: 'relative', overflow: 'hidden', marginLeft: 8 }, gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#F0F4F2' }, liveDot: { position: 'absolute', right: -3, top: 62 / 2 - 5, width: 10, height: 10, borderRadius: 5, backgroundColor: C.heart, shadowColor: C.heart, shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 }, elevation: 4 } });
+const wave = StyleSheet.create({ wrap: { position: 'relative', overflow: 'hidden', marginLeft: 8 }, gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#F0F4F2' }, liveDot: { position: 'absolute', right: 8, top: 62 / 2 - 4, width: 8, height: 8, borderRadius: 4, backgroundColor: C.heart } });
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
@@ -559,7 +627,7 @@ const st = StyleSheet.create({
   battMiniFill: { height: '100%', backgroundColor: C.sea, borderRadius: 1 },
   battTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
   streamTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
-  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10 },
+  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10, overflow: 'hidden' },
   gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   cardHalf: { flex: 1, backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 6 },
   ch: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -606,7 +674,7 @@ const st = StyleSheet.create({
   hBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 70, marginTop: 10 },
   hBar: { flex: 1, borderRadius: 2 },
   sect: { fontSize: 11, fontWeight: '800', color: C.ink2, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
-  sessionIco: { width: 34, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
+  sessionIco: { width: 44, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
   devHero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 24, backgroundColor: C.seaDeep, marginTop: 4 },
   devHeroIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   devHeroTitle: { fontSize: 17, fontWeight: '800', color: '#E6FBF2' },
@@ -631,4 +699,7 @@ const st = StyleSheet.create({
   sheetActs: { flexDirection: 'row', gap: 10, marginTop: 12 },
   toastBox: { position: 'absolute', left: 16, right: 16, bottom: 100, backgroundColor: '#10302A', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14 },
   toastText: { color: '#EAFFF4', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  
+  btnOutline: { height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: C.sea, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  btnOutlineText: { color: C.sea, fontWeight: '800', fontSize: 14 },
 });
