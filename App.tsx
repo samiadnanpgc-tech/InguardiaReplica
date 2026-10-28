@@ -2,7 +2,7 @@
 import {
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View,
   TouchableOpacity, Switch, Modal, Animated, Easing, Platform,
-  Linking, PermissionsAndroid, Alert,
+  Linking, PermissionsAndroid, Alert, ActivityIndicator
 } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { BleManager } from 'react-native-ble-plx';
@@ -13,7 +13,7 @@ const bleManager = new BleManager();
 const C = {
   bg: '#F2F8F5', card: '#FFFFFF', sea: '#2E8B57', seaDeep: '#0F4C3A',
   seaInk: '#08352A', mint: '#D6F2E4', aqua: '#3CC8A0', ink: '#0E2A22',
-  ink2: '#5B7A6F', line: '#E1EEE8', heart: '#E5484D', warn: '#E8A33D',
+  ink2: '#5B7A6F', line: '#E1EEE8', heart: '#E5484D', warn: '#E8A33D', danger: '#E5484D'
 };
 
 function base64ToBytes(base64) {
@@ -83,7 +83,7 @@ function PumpingHeart() {
 }
 
 function SmoothECGWave({ hr }) {
-  const VIEW_W = 190; const HEIGHT = 62; const BASELINE = HEIGHT / 2; const AMP = 22;
+  const VIEW_W = 150; const HEIGHT = 50; const BASELINE = HEIGHT / 2; const AMP = 18;
   const POINT_W = 1.2; const POINTS_PER_BEAT = 80; const CYCLE_W = POINTS_PER_BEAT * POINT_W;
   const BEATS = 4; const TOTAL_W = CYCLE_W * BEATS;
   const pathRef = useRef(''); const fillPathRef = useRef('');
@@ -99,7 +99,6 @@ function SmoothECGWave({ hr }) {
         else if (p >= 0.28 && p < 0.36) v = 1.0 * Math.sin(((p - 0.28) / 0.08) * Math.PI);
         else if (p >= 0.36 && p < 0.42) v = -0.32 * Math.sin(((p - 0.36) / 0.06) * Math.PI);
         else if (p >= 0.52 && p < 0.72) v = 0.26 * Math.sin(((p - 0.52) / 0.2) * Math.PI);
-        v += (Math.random() - 0.5) * 0.015;
         const x = (b * POINTS_PER_BEAT + i) * POINT_W; const y = BASELINE - v * AMP;
         if (d === '') d = `M${x.toFixed(1)},${y.toFixed(1)}`; else d += ` L${x.toFixed(1)},${y.toFixed(1)}`;
       }
@@ -126,7 +125,7 @@ function SmoothECGWave({ hr }) {
           <Path d={pathRef.current} stroke={C.heart} strokeWidth={2} fill="none" strokeLinejoin="round" strokeLinecap="round" />
         </Svg>
       </Animated.View>
-      <View style={wave.liveDot} />
+      <View style={[wave.liveDot, { top: HEIGHT / 2 - 5 }]} />
     </View>
   );
 }
@@ -137,6 +136,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [liveData, setLiveData] = useState({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 });
   const [debugText, setDebugText] = useState('Waiting for connection...');
+  const [connectedDeviceId, setConnectedDeviceId] = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2200); };
 
@@ -151,26 +151,52 @@ export default function App() {
     } catch (e) { console.error("History save error:", e); }
   };
 
-  const handleDisconnect = () => {
-    bleManager.cancelDeviceConnection(); 
-    setPhase('setup'); 
+  const disconnectDevice = async () => {
+    if (connectedDeviceId) {
+      try {
+        await bleManager.cancelDeviceConnection(connectedDeviceId);
+        setConnectedDeviceId(null);
+        setPhase('setup');
+        showToast('Device disconnected successfully');
+      } catch (e) {
+        showToast('Failed to disconnect');
+      }
+    }
   };
+
+  useEffect(() => {
+    if (!connectedDeviceId) return;
+    const sub = bleManager.onDeviceDisconnected(connectedDeviceId, () => {
+      setConnectedDeviceId(null);
+      setPhase('setup');
+      showToast('Device disconnected');
+    });
+    return () => sub.remove();
+  }, [connectedDeviceId]);
 
   return (
     <SafeAreaView style={st.root}>
       <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
       {phase === 'setup' && (
-        <SetupFlow 
-          onComplete={() => setPhase('app')} 
+        <SetupFlow
+          onComplete={() => setPhase('app')}
           onDataReceived={saveToHistory}
-          onDebug={setDebugText} 
+          onDebug={setDebugText}
+          onConnected={setConnectedDeviceId}
         />
       )}
       {phase === 'app' && (
         <View style={{ flex: 1 }}>
           {screen === 'live' && <LiveScreen data={liveData} debugText={debugText} />}
           {screen === 'history' && <HistoryScreen />}
-          {screen === 'device' && <DeviceScreen data={liveData} toast={showToast} onDisconnect={handleDisconnect} />}
+          {screen === 'device' && (
+            <DeviceScreen
+              toast={showToast}
+              liveData={liveData}
+              connectedDeviceId={connectedDeviceId}
+              onDisconnect={disconnectDevice}
+            />
+          )}
           <BottomNav active={screen} onChange={setScreen} />
         </View>
       )}
@@ -179,13 +205,26 @@ export default function App() {
   );
 }
 
-function SetupFlow({ onComplete, onDataReceived, onDebug }) {
+function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
   const [step, setStep] = useState(2);
   const [helpOpen, setHelpOpen] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [connectingDeviceId, setConnectingDeviceId] = useState(null);
   const [foundDevices, setFoundDevices] = useState([]);
   const [bites, setBites] = useState(0);
+
+  const stepRef = useRef(2);
+  const lastBiteRef = useRef(null);
+  const connectingRef = useRef(null); // LOCK: Prevents multiple clicks
+
+  useEffect(() => { stepRef.current = step; }, [step]);
+
+  useEffect(() => {
+    if (step === 3) {
+      setBites(0);
+      lastBiteRef.current = null;
+    }
+  }, [step]);
 
   const openBluetoothSettings = () => {
     if (Platform.OS === 'android') Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS');
@@ -227,17 +266,21 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
   };
 
   const connectToDevice = async (device) => {
-    bleManager.stopDeviceScan();
-    setPairing(false); 
-    setConnectingDeviceId(device.id); 
-    onDebug("Connecting to device...");
+    if (connectingRef.current) return; // Agar pehle se koi connect ho raha hai to ruk jao
+    connectingRef.current = device.id;
     
+    bleManager.stopDeviceScan();
+    setPairing(false);
+    setConnectingDeviceId(device.id);
+    onDebug("Connecting to device...");
+
     try {
       const connectedDevice = await bleManager.connectToDevice(device.id, { timeout: 15000 });
       onDebug("Connected! Discovering services...");
       await connectedDevice.requestMTU(185);
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
+      onConnected(connectedDevice.id);
+
       const services = await connectedDevice.services();
       let debugMsg = "SERVICES FOUND:\n";
       let targetService = null;
@@ -254,24 +297,36 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
           }
         }
       }
-      onDebug(debugMsg); 
-      
+      onDebug(debugMsg);
+
       if (targetChar) {
         bleManager.monitorCharacteristicForDevice(
-          connectedDevice.id, targetService, targetChar, 
+          connectedDevice.id, targetService, targetChar,
           (err, char) => {
             if (err) { onDebug(`Monitor Err: ${err.message}`); return; }
             if (char?.value) {
               const bytes = base64ToBytes(char.value);
               onDebug(`RAW: [${bytes.join(', ')}]`);
+
               if (bytes.length >= 18) {
                 const hr = bytes[8];
                 const spo = bytes[9];
-                const temp = (bytes[10] | (bytes[11] << 8)) / 100.0; 
-                const biteCount = bytes[12] | (bytes[13] << 8);       
+                const temp = (bytes[10] | (bytes[11] << 8)) / 100.0;
+                const biteCount = bytes[12] | (bytes[13] << 8);
                 const battery = bytes[16];
                 const movement = bytes[17];
+
                 onDataReceived({ hr, spo, temp, bites: biteCount, battery, movement });
+
+                if (stepRef.current === 3) {
+                  if (lastBiteRef.current === null) {
+                    lastBiteRef.current = biteCount;
+                  } else if (biteCount > lastBiteRef.current) {
+                    const diff = biteCount - lastBiteRef.current;
+                    lastBiteRef.current = biteCount;
+                    setBites(prev => Math.min(3, prev + diff));
+                  }
+                }
               }
             }
           }
@@ -279,19 +334,17 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
       } else {
         onDebug("No Notifiable Characteristic found!");
       }
-      setTimeout(() => { setConnectingDeviceId(null); setBites(0); setStep(3); }, 700);
+
+      setTimeout(() => { setConnectingDeviceId(null); setStep(3); }, 700);
+
     } catch (err) {
       onDebug(`Error: ${err.message}`);
       setConnectingDeviceId(null);
-      Alert.alert('Connection Error', err.message); 
+      Alert.alert('Connection Error', err.message);
+    } finally {
+      connectingRef.current = null; // Lock khol do
     }
   };
-
-  useEffect(() => {
-    if (step !== 3 || bites >= 3) return;
-    const t = setTimeout(() => setBites(b => b + 1), 1200);
-    return () => clearTimeout(t);
-  }, [step, bites]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -315,7 +368,7 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
           <Text style={st.h1}>Pair your mouthpiece</Text>
           <Text style={st.h1sub}>Keep the green light breathing green and your phone within 1 m.</Text>
           <View style={st.radarWrap}><RadarPulse /><View style={st.radarCore}><Text style={st.radarIcon}>IG</Text><View style={st.btBadge}><Text style={st.btIcon}>BT</Text></View></View></View>
-          
+
           <View style={st.foundRow}>
             <Text style={st.foundLbl}>NEARBY DEVICES</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -327,26 +380,34 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
           {foundDevices.length === 0 && pairing && (
             <Text style={{ textAlign: 'center', marginTop: 20, color: '#5B7A6F' }}>Dhoond rahe hain...</Text>
           )}
-          
-          {foundDevices.map((device, index) => (
-            <View key={device.id || index} style={[st.devCard, { borderColor: device.name?.includes('Guardia') ? '#9FD8BC' : '#E1EEE8' }]}>
-              <View style={st.devThumb}><Text style={st.devThumbIcon}>IG</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={st.devName}>{device.name || device.localName || 'Unknown Device'}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <Text style={st.devMeta}>{device.id.slice(-5)} ·</Text>
-                  <SignalBars strength={device.rssi > -60 ? 3 : 1} />
-                  <Text style={st.devMeta}>{device.rssi} dBm</Text>
+
+          {foundDevices.map((device, index) => {
+            const isConnecting = connectingDeviceId === device.id;
+            const isAnyConnecting = connectingDeviceId !== null;
+
+            return (
+              <View key={device.id} style={[st.devCard, { borderColor: isConnecting ? '#9FD8BC' : '#E1EEE8' }]}>
+                <View style={st.devThumb}><Text style={st.devThumbIcon}>IG</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={st.devName}>{device.name || device.localName || 'Unknown Device'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <Text style={st.devMeta}>{device.id.slice(-5)} ·</Text>
+                    <SignalBars strength={device.rssi > -60 ? 3 : 1} />
+                    <Text style={st.devMeta}>{device.rssi} dBm</Text>
+                  </View>
                 </View>
+                
+                {/* FIXED: OnPress ab sirf button par hai, poore card par nahi */}
+                <TouchableOpacity 
+                  style={[st.btnPrimarySm, isAnyConnecting && !isConnecting && { opacity: 0.4 }]}
+                  disabled={isAnyConnecting}
+                  onPress={() => connectToDevice(device)}
+                >
+                  <Text style={st.btnPrimaryText}>{isConnecting ? 'Wait...' : 'Connect'}</Text>
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity 
-                style={[st.btnPrimarySm, connectingDeviceId !== null && { opacity: 0.5 }]} 
-                disabled={connectingDeviceId !== null}
-                onPress={() => connectToDevice(device)}>
-                <Text style={st.btnPrimaryText}>{connectingDeviceId === device.id ? 'Wait...' : 'Connect'}</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
+            );
+          })}
         </ScrollView>
       )}
 
@@ -356,18 +417,13 @@ function SetupFlow({ onComplete, onDataReceived, onDebug }) {
           <Text style={st.h1sub}>{bites >= 3 ? 'Baseline saved.' : 'Fit the mouthpiece and bite down gently 3 times.'}</Text>
           <View style={st.calibWrap}>
             <View style={[st.calibRing, { borderTopColor: bites >= 1 ? C.sea : C.line, borderRightColor: bites >= 2 ? C.sea : C.line, borderBottomColor: bites >= 3 ? C.sea : C.line, borderLeftColor: bites >= 3 ? C.sea : C.line }]} />
-            <View style={st.calibInner}><Text style={st.calibNumber}>{bites}</Text><Text style={st.calibLabel}>of 3 bites</Text></View>
+            <View style={st.calibInner}><Text style={st.calibNumber}>{bites}</Text><Text style={st.calibLabel}>of 3 real bites</Text></View>
           </View>
-          
-          {/* 🚨 CHANGE: Ab dono buttons bilkul same (outline) hain 🚨 */}
-          <TouchableOpacity style={[st.btnOutline, bites < 3 && { borderColor: '#C9D8D1' }]} disabled={bites < 3} onPress={onComplete}>
-            <Text style={[st.btnOutlineText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={st.btnOutline} onPress={onComplete}>
-            <Text style={st.btnOutlineText}>Skip for now</Text>
-          </TouchableOpacity>
-
+          <Text style={{ textAlign: 'center', color: C.ink2, fontSize: 12, marginBottom: 10 }}>
+            Counter updates from hardware when you actually bite.
+          </Text>
+          <TouchableOpacity style={[st.btnPrimary, bites < 3 && { backgroundColor: '#EEF1F0' }]} disabled={bites < 3} onPress={onComplete}><Text style={[st.btnPrimaryText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text></TouchableOpacity>
+          <TouchableOpacity style={st.btnText} onPress={onComplete}><Text style={st.btnTextLabel}>Skip for now</Text></TouchableOpacity>
         </ScrollView>
       )}
 
@@ -383,7 +439,7 @@ function LiveScreen({ data, debugText }) {
   return (
     <ScrollView contentContainerStyle={st.scroll}>
       <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>Live monitor</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Real-time Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
-      
+
       <View style={{ backgroundColor: '#000', padding: 10, borderRadius: 10, marginBottom: 10 }}>
         <Text style={{ color: '#0f0', fontFamily: 'monospace', fontSize: 10 }}>
           {debugText}
@@ -391,15 +447,14 @@ function LiveScreen({ data, debugText }) {
       </View>
 
       <View style={st.stage3d}>
-        <View style={st.ovTL}><Text style={st.ovTLText}>Connected <Text style={{ opacity: 0.6 }}>FW 2.4.1</Text></Text></View>
+        <View style={st.ovTL}><Text style={st.ovTLText}>Connected</Text></View>
         <View style={st.ovTR}><View style={st.pillDk}><View style={st.battMini}><View style={[st.battMiniFill, { width: `${battery}%` }]} /></View><Text style={st.battTxt}>{battery}%</Text></View></View>
         <Device3D />
-        <Text style={st.ovBR}>Drag to rotate</Text>
       </View>
 
       <View style={st.card}>
         <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#FDE7E8' }]}><PumpingHeart /></View><Text style={st.chTitle}>Heart rate</Text><Text style={st.chAside}>live</Text></View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <View><View style={st.valRow}><Text style={st.valNum}>{hr}</Text><Text style={st.valUnit}>BPM</Text></View><Text style={st.subText}>Resting range · 58–84</Text></View>
           <SmoothECGWave hr={hr || 0} />
         </View>
@@ -419,7 +474,7 @@ function LiveScreen({ data, debugText }) {
       <View style={st.gridRow}>
         <View style={st.cardHalf}>
           <View style={st.ch}><View style={[st.chIco, { backgroundColor: C.mint }]}><Text style={{ fontSize: 14, color: C.sea, fontWeight: 'bold' }}>B</Text></View><Text style={st.chTitle}>Bite count</Text></View>
-          <View style={st.valRow}><Text style={[st.valNum, { fontSize: 26 }]}>{bites}</Text><Text style={st.valUnit}>today</Text></View>
+          <View style={st.valRow}><Text style={[st.valNum, { fontSize: 26 }]}>{bites}</Text><Text style={st.valUnit}>total</Text></View>
         </View>
         <View style={st.cardHalf}>
           <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#E6F4EC' }]}><Text style={{ fontSize: 14, color: C.sea, fontWeight: 'bold' }}>%</Text></View><Text style={st.chTitle}>Battery</Text></View>
@@ -446,44 +501,44 @@ function HistoryScreen() {
       try {
         const data = await AsyncStorage.getItem('@inguardia_history');
         if (data) setHistory(JSON.parse(data).reverse());
-      } catch (e) { console.log(e); }
+      } catch (e) { console.log("History load error:", e); }
     };
     loadHistory();
   }, []);
 
-  const avgHr = history.length ? Math.round(history.reduce((acc, curr) => acc + curr.hr, 0) / history.length) : 0;
-  const avgSpo = history.length ? Math.round(history.reduce((acc, curr) => acc + curr.spo, 0) / history.length) : 0;
-  const avgTemp = history.length ? (history.reduce((acc, curr) => acc + curr.temp, 0) / history.length).toFixed(1) : '0.0';
+  const avgHr = history.length ? Math.round(history.reduce((a, c) => a + c.hr, 0) / history.length) : 0;
+  const avgSpo = history.length ? Math.round(history.reduce((a, c) => a + c.spo, 0) / history.length) : 0;
+  const avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length).toFixed(1) : '0.0';
   const totalBites = history.length ? history[0].bites : 0;
 
   return (
     <ScrollView contentContainerStyle={st.scroll}>
-      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Saved Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
-      
+      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>{history.length} readings</Text></View></View>
+
       <View style={st.miniRow}>
         <View style={st.mini}><Text style={st.miniLabel}>Avg Heart Rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View></View>
         <View style={st.mini}><Text style={st.miniLabel}>Avg SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgSpo}</Text><Text style={st.miniUnit}>%</Text></View></View>
       </View>
-      
+
       <View style={st.miniRow}>
-        <View style={st.mini}><Text style={st.miniLabel}>Total Bites</Text><Text style={st.miniValue}>{totalBites}</Text></View>
+        <View style={st.mini}><Text style={st.miniLabel}>Latest Bite Count</Text><Text style={st.miniValue}>{totalBites}</Text></View>
         <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp}</Text><Text style={st.miniUnit}>°C</Text></View></View>
       </View>
 
       <Text style={st.sect}>RECENT READINGS</Text>
       <View style={st.list}>
         {history.length === 0 ? (
-          <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle connect karein.</Text>
+          <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle device connect karein.</Text>
         ) : (
           history.map((item, index) => {
             const date = new Date(item.timestamp);
             const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
             return (
               <View key={index} style={st.rowItem}>
-                <View style={st.sessionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>{timeStr}</Text></View>
+                <View style={st.sessionIco}><Text style={{ fontSize: 11, fontWeight: 'bold' }}>{timeStr}</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={st.rowTitle}>HR: {item.hr} | SpO2: {item.spo}%</Text>
-                  <Text style={st.rowSub}>Temp: {item.temp.toFixed(1)}°C | Bites: {item.bites}</Text>
+                  <Text style={st.rowTitle}>HR: {item.hr} | SpO2: {item.spo}% | Temp: {item.temp.toFixed(1)}°C</Text>
+                  <Text style={st.rowSub}>Bites: {item.bites} | Battery: {item.battery}%</Text>
                 </View>
               </View>
             );
@@ -491,55 +546,6 @@ function HistoryScreen() {
         )}
       </View>
       <View style={{ height: 20 }} />
-    </ScrollView>
-  );
-}
-
-function DeviceScreen({ toast, data, onDisconnect }) {
-  const [live, setLive] = useState(true);
-  const [clench, setClench] = useState(true);
-  const { battery, hr, temp } = data;
-
-  return (
-    <ScrollView contentContainerStyle={st.scroll}>
-      <View style={st.appbar}>
-        <Text style={[st.appTitle, { flex: 1 }]}>Device</Text>
-        <View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Connected</Text></View>
-        <TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity>
-      </View>
-      
-      <View style={st.devHero}>
-        <View style={st.devHeroIcon}><Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold' }}>IG</Text></View>
-        <View style={{ flex: 1 }}>
-          <Text style={st.devHeroTitle}>Connected Board</Text>
-          <Text style={st.devHeroSub}>Hardware Connection</Text>
-          <Text style={st.devHeroSub}>Active</Text>
-        </View>
-      </View>
-
-      <View style={st.stats3}>
-        <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{battery}%</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Heart Rate</Text><Text style={st.stat3Value}>{hr} bpm</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Temp</Text><Text style={st.stat3Value}>{temp ? temp.toFixed(1) : 0}°C</Text></View>
-      </View>
-
-      <Text style={st.sect}>ACTIONS</Text>
-      <View style={st.list}>
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Ring light is blinking')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Fin</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Find my device</Text><Text style={st.rowSub}>Blinks the green light for 5 s</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Recalibrating…')}><View style={st.actionIco}><Text style={{ fontSize: 12, fontWeight: 'bold' }}>Cal</Text></View><View style={{ flex: 1 }}><Text style={st.rowTitle}>Recalibrate sensors</Text><Text style={st.rowSub}>Last calibrated today, 9:41</Text></View><Text style={st.chev}>&gt;</Text></TouchableOpacity>
-      </View>
-
-      <Text style={st.sect}>SETTINGS</Text>
-      <View style={st.list}>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
-      </View>
-
-      <TouchableOpacity style={{ marginTop: 20, height: 48, borderRadius: 24, backgroundColor: '#FFE5E5', alignItems: 'center', justifyContent: 'center' }} onPress={onDisconnect}>
-        <Text style={{ color: '#D92D20', fontWeight: 'bold', fontSize: 14 }}>Disconnect Device</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 30 }} />
     </ScrollView>
   );
 }
@@ -562,10 +568,88 @@ function Device3D() {
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
       <View style={{ position: 'absolute', bottom: 30, width: 160, height: 18, borderRadius: 100, backgroundColor: 'rgba(0,0,0,0.18)' }} />
       <Animated.View style={{ width: 140, height: 100, backgroundColor: '#fff', borderRadius: 30, transform: [{ translateY }, { rotateZ: rotateDeg }], alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
-         <Text style={{ fontSize: 30, color: C.sea, fontWeight: 'bold' }}>IG</Text>
+        <Text style={{ fontSize: 30, color: C.sea, fontWeight: 'bold' }}>IG</Text>
       </Animated.View>
       <Animated.View style={{ position: 'absolute', top: '55%', left: '60%', width: 8, height: 8, borderRadius: 4, backgroundColor: '#5fd38d', opacity: ledOpacity, shadowColor: '#5fd38d', shadowOpacity: 1, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }} pointerEvents="none" />
     </View>
+  );
+}
+
+function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
+  const [live, setLive] = useState(true);
+  const [clench, setClench] = useState(true);
+  const [rssi, setRssi] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const isConnected = connectedDeviceId !== null;
+
+  const refreshSignal = async () => {
+    if (!isConnected) { toast('Device not connected'); return; }
+    try {
+      setRefreshing(true);
+      const device = await bleManager.readRSSI(connectedDeviceId);
+      setRssi(device.rssi);
+      toast(`Signal strength: ${device.rssi} dBm`);
+    } catch (e) {
+      toast('Could not read signal');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={st.scroll}>
+      <View style={st.appbar}>
+        <Text style={[st.appTitle, { flex: 1 }]}>Device</Text>
+        <View style={[st.chip, !isConnected && { backgroundColor: '#FCE9C8' }]}>
+          <View style={[st.chipDot, !isConnected && { backgroundColor: C.warn }]} />
+          <Text style={[st.chipText, !isConnected && { color: '#8A5B10' }]}>{isConnected ? 'Connected' : 'Disconnected'}</Text>
+        </View>
+      </View>
+
+      <View style={st.devHero}>
+        <View style={st.devHeroIcon}><Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold' }}>IG</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.devHeroTitle}>{isConnected ? 'Connected Board' : 'No Device'}</Text>
+          <Text style={st.devHeroSub}>{isConnected ? 'Hardware Connection Active' : 'Please connect a device first'}</Text>
+          {isConnected && rssi !== null && <Text style={st.devHeroSub}>Signal · {rssi} dBm</Text>}
+        </View>
+      </View>
+
+      <View style={st.stats3}>
+        <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{liveData.battery || 0}%</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Heart Rate</Text><Text style={st.stat3Value}>{liveData.hr || 0}</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Bites</Text><Text style={st.stat3Value}>{liveData.bites || 0}</Text></View>
+      </View>
+
+      <Text style={st.sect}>ACTIONS</Text>
+      <View style={st.list}>
+        <TouchableOpacity style={st.rowItem} onPress={refreshSignal} disabled={refreshing || !isConnected}>
+          <View style={st.actionIco}><Text style={{ fontSize: 10, fontWeight: 'bold' }}>RSSI</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>{refreshing ? 'Reading...' : 'Check signal strength'}</Text>
+            <Text style={st.rowSub}>Reads live RSSI from connected device</Text>
+          </View>
+          <Text style={st.chev}>&gt;</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={st.sect}>SETTINGS</Text>
+      <View style={st.list}>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+      </View>
+
+      <TouchableOpacity 
+        style={[st.btnDisconnect, !isConnected && { opacity: 0.5 }]} 
+        onPress={onDisconnect} 
+        disabled={!isConnected}
+      >
+        <Text style={st.btnDisconnectText}>Disconnect Device</Text>
+      </TouchableOpacity>
+
+      <View style={{ height: 30 }} />
+    </ScrollView>
   );
 }
 
@@ -577,7 +661,7 @@ function BottomNav({ active, onChange }) {
 }
 
 const rp = StyleSheet.create({ ring: { position: 'absolute', width: 90, height: 90, borderRadius: 45, borderWidth: 1.5, borderColor: '#2E8B57' } });
-const wave = StyleSheet.create({ wrap: { position: 'relative', overflow: 'hidden', marginLeft: 8 }, gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#F0F4F2' }, liveDot: { position: 'absolute', right: 8, top: 62 / 2 - 4, width: 8, height: 8, borderRadius: 4, backgroundColor: C.heart } });
+const wave = StyleSheet.create({ wrap: { position: 'relative', overflow: 'hidden', marginLeft: 8, borderRadius: 10 }, gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#F0F4F2' }, liveDot: { position: 'absolute', right: -3, width: 10, height: 10, borderRadius: 5, backgroundColor: C.heart, shadowColor: C.heart, shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 }, elevation: 4 } });
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
@@ -620,14 +704,11 @@ const st = StyleSheet.create({
   ovTL: { position: 'absolute', top: 14, left: 16, zIndex: 10 },
   ovTLText: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
   ovTR: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
-  ovBL: { position: 'absolute', bottom: 13, left: 16, zIndex: 10 },
-  ovBR: { position: 'absolute', bottom: 13, right: 16, fontSize: 11, color: C.ink2, fontWeight: '600', zIndex: 10 },
   pillDk: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 26, paddingHorizontal: 10, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.75)' },
   battMini: { width: 16, height: 10, borderWidth: 1.5, borderColor: C.seaDeep, borderRadius: 2, padding: 1 },
   battMiniFill: { height: '100%', backgroundColor: C.sea, borderRadius: 1 },
   battTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
-  streamTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
-  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10, overflow: 'hidden' },
+  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10 },
   gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   cardHalf: { flex: 1, backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 6 },
   ch: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -639,40 +720,16 @@ const st = StyleSheet.create({
   valUnit: { fontSize: 13, fontWeight: '700', color: C.ink2 },
   subText: { fontSize: 11.5, color: C.ink2, fontWeight: '600', marginTop: 4 },
   spoCircle: { width: 50, height: 50, borderRadius: 25, borderWidth: 5, borderColor: C.sea, alignItems: 'center', justifyContent: 'center' },
-  unitSeg: { flexDirection: 'row', backgroundColor: '#E3EFE9', borderRadius: 14, padding: 2, gap: 2, alignSelf: 'flex-start', marginTop: 6 },
-  unitSegBtn: { paddingHorizontal: 10, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  unitSegBtnOn: { backgroundColor: '#fff' },
-  unitSegText: { fontSize: 10, fontWeight: '700', color: C.ink2 },
-  unitSegTextOn: { color: C.seaDeep },
-  biteBarsWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 30, marginTop: 6 },
-  biteBar: { flex: 1, borderRadius: 2 },
   battShell: { width: 54, height: 26, borderRadius: 7, borderWidth: 2, borderColor: C.ink, padding: 2 },
   battFill: { height: '100%', borderRadius: 4, backgroundColor: C.sea },
   mvPill: { flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 14, borderRadius: 17 },
   mvText: { fontWeight: '800', fontSize: 14 },
-  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  axisLbl: { fontSize: 10, fontWeight: '700', color: C.ink2, width: 12 },
-  axisTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.line, position: 'relative', overflow: 'hidden' },
-  axisFillLeft: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: C.sea, borderRadius: 3 },
   disclaim: { fontSize: 10.5, color: C.ink2, textAlign: 'center', paddingHorizontal: 20, marginTop: 16, lineHeight: 15 },
-  seg: { flexDirection: 'row', backgroundColor: '#E3EFE9', borderRadius: 20, padding: 3, gap: 2, marginBottom: 12 },
-  segBtn: { flex: 1, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  segBtnOn: { backgroundColor: '#fff' },
-  segText: { fontSize: 12.5, fontWeight: '700', color: C.ink2 },
-  segTextOn: { color: C.seaDeep },
-  segSm: { flexDirection: 'row', backgroundColor: '#E3EFE9', borderRadius: 14, padding: 2, gap: 2 },
-  segBtnSm: { paddingHorizontal: 12, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  segBtnSmOn: { backgroundColor: '#fff' },
-  segTextSm: { fontSize: 11, fontWeight: '700', color: C.ink2 },
-  segTextSmOn: { color: C.seaDeep },
   miniRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   mini: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 20, padding: 12 },
   miniLabel: { fontSize: 11, fontWeight: '700', color: C.ink2 },
   miniValue: { fontSize: 22, fontWeight: '900', color: C.ink, letterSpacing: -0.5, marginTop: 4 },
   miniUnit: { fontSize: 11, fontWeight: '600', color: C.ink2, marginLeft: 3 },
-  hcard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 24, padding: 14, marginTop: 10 },
-  hBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 70, marginTop: 10 },
-  hBar: { flex: 1, borderRadius: 2 },
   sect: { fontSize: 11, fontWeight: '800', color: C.ink2, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
   sessionIco: { width: 44, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
   devHero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 24, backgroundColor: C.seaDeep, marginTop: 4 },
@@ -685,6 +742,10 @@ const st = StyleSheet.create({
   stat3Value: { fontSize: 16, fontWeight: '900', color: C.ink, marginTop: 4 },
   actionIco: { width: 34, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
   chev: { fontSize: 20, color: '#9DB5AB' },
+  rowItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: C.card, borderRadius: 18, borderWidth: 1, borderColor: C.line, marginBottom: 8 },
+  rowTitle: { fontSize: 13, fontWeight: '700', color: C.ink },
+  rowSub: { fontSize: 11.5, color: C.ink2, marginTop: 2 },
+  list: { gap: 0 },
   navbar: { flexDirection: 'row', backgroundColor: '#E6F1EC', paddingTop: 10, paddingBottom: 14 },
   navItem: { flex: 1, alignItems: 'center', gap: 4 },
   navPill: { width: 60, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
@@ -697,9 +758,15 @@ const st = StyleSheet.create({
   sheetTitle: { fontSize: 19, fontWeight: '800', color: C.ink, marginBottom: 6 },
   sheetText: { fontSize: 13.5, color: C.ink2, lineHeight: 20, marginBottom: 8 },
   sheetActs: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  btnPrimary: { height: 52, borderRadius: 26, backgroundColor: C.sea, alignItems: 'center', justifyContent: 'center' },
+  btnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  btnPrimarySm: { height: 36, paddingHorizontal: 16, borderRadius: 18, backgroundColor: C.sea, alignItems: 'center', justifyContent: 'center' },
+  btnText: { height: 40, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  btnTextLabel: { color: C.ink2, fontSize: 13, fontWeight: '600' },
+  btnTonal: { flex: 1, height: 44, borderRadius: 22, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
+  btnTonalText: { color: C.seaDeep, fontWeight: '700', fontSize: 13 },
+  btnDisconnect: { marginTop: 20, height: 52, borderRadius: 26, backgroundColor: C.danger, alignItems: 'center', justifyContent: 'center' },
+  btnDisconnectText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   toastBox: { position: 'absolute', left: 16, right: 16, bottom: 100, backgroundColor: '#10302A', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14 },
   toastText: { color: '#EAFFF4', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  
-  btnOutline: { height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: C.sea, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  btnOutlineText: { color: C.sea, fontWeight: '800', fontSize: 14 },
 });
