@@ -4,7 +4,7 @@ import {
   TouchableOpacity, Switch, Modal, Animated, Easing, Platform,
   Linking, PermissionsAndroid, Alert, ActivityIndicator
 } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect, Ellipse, Pattern } from 'react-native-svg';
 import { BleManager } from 'react-native-ble-plx';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -15,6 +15,85 @@ const C = {
   seaInk: '#08352A', mint: '#D6F2E4', aqua: '#3CC8A0', ink: '#0E2A22',
   ink2: '#5B7A6F', line: '#E1EEE8', heart: '#E5484D', warn: '#E8A33D', danger: '#E5484D'
 };
+
+// 🔥 LOGO COMPONENT 🔥
+function BrandLogo({ size = 40, color = '#FFFFFF' }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 100 100">
+      <Path d="M 25 25 L 25 55 A 25 25 0 0 0 75 55 L 75 25" stroke={color} strokeWidth="10" strokeLinecap="round" fill="none" />
+      <Path d="M 40 25 L 40 55 A 10 10 0 0 0 60 55 L 60 25" stroke={color} strokeWidth="10" strokeLinecap="round" fill="none" />
+      <Circle cx="50" cy="80" r="5.5" fill={color} />
+    </Svg>
+  );
+}
+
+// 🔥 3D MODEL 🔥
+function Mechanical3DModel() {
+  const floatY = useRef(new Animated.Value(0)).current;
+  const rotateZ = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatY, { toValue: 1, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(floatY, { toValue: 0, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(rotateZ, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(rotateZ, { toValue: -1, duration: 6000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+      ])
+    ).start();
+  }, [floatY, rotateZ]);
+
+  const translateY = floatY.interpolate({ inputRange: [0, 1], outputRange: [6, -6] });
+  const rotate = rotateZ.interpolate({ inputRange: [-1, 1], outputRange: ['-4deg', '4deg'] });
+
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={{ transform: [{ translateY }, { rotateZ: rotate }] }}>
+        <Svg width="220" height="220" viewBox="0 0 200 200">
+          <Defs>
+            <LinearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#2a2c2a" />
+              <Stop offset="1" stopColor="#0d0f0d" />
+            </LinearGradient>
+            <LinearGradient id="frontGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#1a1c1a" />
+              <Stop offset="1" stopColor="#000000" />
+            </LinearGradient>
+            <LinearGradient id="blockTop" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#3a3c3a" />
+              <Stop offset="1" stopColor="#111" />
+            </LinearGradient>
+            <LinearGradient id="blockSide" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#1a1c1a" />
+              <Stop offset="1" stopColor="#050505" />
+            </LinearGradient>
+          </Defs>
+
+          <Ellipse cx="100" cy="165" rx="75" ry="15" fill="rgba(0,0,0,0.15)" />
+
+          <Path d="M 125 65 L 155 80 L 135 90 L 105 75 Z" fill="url(#blockTop)" />
+          <Path d="M 155 80 L 155 140 L 135 150 L 135 90 Z" fill="url(#blockSide)" />
+          <Path d="M 105 75 L 135 90 L 135 150 L 105 135 Z" fill="url(#frontGrad)" />
+          <Path d="M 125 65 L 155 80" stroke="#555" strokeWidth="1.5" fill="none" />
+
+          <Path d="M 80 40 C 30 40, 15 100, 50 145 C 80 180, 120 160, 130 150 L 130 120 C 110 140, 70 140, 55 100 C 45 60, 80 55, 105 65 Z" fill="url(#bodyGrad)" />
+          <Path d="M 50 145 C 80 180, 120 160, 130 150 L 130 130 C 120 140, 80 150, 60 125 Z" fill="url(#frontGrad)" />
+          <Path d="M 50 145 C 80 180, 120 160, 130 150" stroke="#333" strokeWidth="1" fill="none" />
+
+          <Circle cx="85" cy="95" r="14" fill="#E4EEEA" />
+          <Circle cx="85" cy="95" r="14" stroke="#000" strokeWidth="4" fill="none" opacity="0.8" />
+          <Path d="M 85 81 C 70 81, 60 100, 70 120" stroke="#111" strokeWidth="3" fill="none" />
+          <Path d="M 85 109 C 90 109, 95 105, 95 95" stroke="#222" strokeWidth="2" fill="none" />
+        </Svg>
+      </Animated.View>
+    </View>
+  );
+}
 
 function base64ToBytes(base64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -213,9 +292,11 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
   const [foundDevices, setFoundDevices] = useState([]);
   const [bites, setBites] = useState(0);
 
+  const [sensorsReady, setSensorsReady] = useState({ pulse: false, temp: false, bite: false });
+
   const stepRef = useRef(2);
   const lastBiteRef = useRef(null);
-  const connectingRef = useRef(null); // LOCK: Prevents multiple clicks
+  const connectingRef = useRef(null);
 
   useEffect(() => { stepRef.current = step; }, [step]);
 
@@ -223,6 +304,7 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
     if (step === 3) {
       setBites(0);
       lastBiteRef.current = null;
+      setSensorsReady({ pulse: false, temp: false, bite: false });
     }
   }, [step]);
 
@@ -266,7 +348,7 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
   };
 
   const connectToDevice = async (device) => {
-    if (connectingRef.current) return; // Agar pehle se koi connect ho raha hai to ruk jao
+    if (connectingRef.current) return;
     connectingRef.current = device.id;
     
     bleManager.stopDeviceScan();
@@ -318,6 +400,12 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
 
                 onDataReceived({ hr, spo, temp, bites: biteCount, battery, movement });
 
+                setSensorsReady(prev => ({
+                  pulse: prev.pulse || (hr > 0 && spo > 0),
+                  temp: prev.temp || (temp > 30 && temp < 45), 
+                  bite: prev.bite || true, 
+                }));
+
                 if (stepRef.current === 3) {
                   if (lastBiteRef.current === null) {
                     lastBiteRef.current = biteCount;
@@ -342,7 +430,7 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
       setConnectingDeviceId(null);
       Alert.alert('Connection Error', err.message);
     } finally {
-      connectingRef.current = null; // Lock khol do
+      connectingRef.current = null;
     }
   };
 
@@ -367,7 +455,14 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
         <ScrollView contentContainerStyle={st.scroll}>
           <Text style={st.h1}>Pair your mouthpiece</Text>
           <Text style={st.h1sub}>Keep the green light breathing green and your phone within 1 m.</Text>
-          <View style={st.radarWrap}><RadarPulse /><View style={st.radarCore}><Text style={st.radarIcon}>IG</Text><View style={st.btBadge}><Text style={st.btIcon}>BT</Text></View></View></View>
+          
+          <View style={st.radarWrap}>
+            <RadarPulse />
+            <View style={st.radarCore}>
+              <BrandLogo size={60} color="#FFFFFF" />
+              <View style={st.btBadge}><Text style={st.btIcon}>BT</Text></View>
+            </View>
+          </View>
 
           <View style={st.foundRow}>
             <Text style={st.foundLbl}>NEARBY DEVICES</Text>
@@ -387,7 +482,9 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
 
             return (
               <View key={device.id} style={[st.devCard, { borderColor: isConnecting ? '#9FD8BC' : '#E1EEE8' }]}>
-                <View style={st.devThumb}><Text style={st.devThumbIcon}>IG</Text></View>
+                <View style={st.devThumb}>
+                  <BrandLogo size={28} color={C.sea} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={st.devName}>{device.name || device.localName || 'Unknown Device'}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
@@ -397,7 +494,6 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
                   </View>
                 </View>
                 
-                {/* FIXED: OnPress ab sirf button par hai, poore card par nahi */}
                 <TouchableOpacity 
                   style={[st.btnPrimarySm, isAnyConnecting && !isConnecting && { opacity: 0.4 }]}
                   disabled={isAnyConnecting}
@@ -414,15 +510,43 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
       {step === 3 && (
         <ScrollView contentContainerStyle={st.scroll}>
           <Text style={st.h1}>{bites >= 3 ? 'Calibration complete' : 'Quick calibration'}</Text>
-          <Text style={st.h1sub}>{bites >= 3 ? 'Baseline saved.' : 'Fit the mouthpiece and bite down gently 3 times.'}</Text>
+          <Text style={st.h1sub}>{bites >= 3 ? 'Baseline saved. You can recalibrate at any time from the Device tab.' : 'Fit the mouthpiece and bite down gently 3 times.'}</Text>
+          
           <View style={st.calibWrap}>
             <View style={[st.calibRing, { borderTopColor: bites >= 1 ? C.sea : C.line, borderRightColor: bites >= 2 ? C.sea : C.line, borderBottomColor: bites >= 3 ? C.sea : C.line, borderLeftColor: bites >= 3 ? C.sea : C.line }]} />
-            <View style={st.calibInner}><Text style={st.calibNumber}>{bites}</Text><Text style={st.calibLabel}>of 3 real bites</Text></View>
+            <View style={st.calibInner}><Text style={st.calibNumber}>{bites}</Text><Text style={st.calibLabel}>of 3 bites</Text></View>
           </View>
-          <Text style={{ textAlign: 'center', color: C.ink2, fontSize: 12, marginBottom: 10 }}>
-            Counter updates from hardware when you actually bite.
-          </Text>
-          <TouchableOpacity style={[st.btnPrimary, bites < 3 && { backgroundColor: '#EEF1F0' }]} disabled={bites < 3} onPress={onComplete}><Text style={[st.btnPrimaryText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text></TouchableOpacity>
+
+          {bites >= 3 && (
+            <View style={st.sensorBox}>
+              <View style={st.sensorRow}>
+                <Text style={st.sensorName}>Bite sensor</Text>
+                <Text style={[st.sensorStatus, sensorsReady.bite ? { color: C.sea } : { color: C.warn }]}>
+                  {sensorsReady.bite ? '✓ Ready' : 'Checking...'}
+                </Text>
+              </View>
+              <View style={st.sensorDivider} />
+              
+              <View style={st.sensorRow}>
+                <Text style={st.sensorName}>Pulse sensor · HR & SpO₂</Text>
+                <Text style={[st.sensorStatus, sensorsReady.pulse ? { color: C.sea } : { color: C.warn }]}>
+                  {sensorsReady.pulse ? '✓ Ready' : 'Checking...'}
+                </Text>
+              </View>
+              <View style={st.sensorDivider} />
+
+              <View style={st.sensorRow}>
+                <Text style={st.sensorName}>Temperature</Text>
+                <Text style={[st.sensorStatus, sensorsReady.temp ? { color: C.sea } : { color: C.warn }]}>
+                  {sensorsReady.temp ? '✓ Ready' : 'Checking...'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity style={[st.btnPrimary, bites < 3 && { backgroundColor: '#EEF1F0' }, bites >= 3 && { marginTop: 20 }]} disabled={bites < 3} onPress={onComplete}>
+            <Text style={[st.btnPrimaryText, bites < 3 && { color: '#9AAAA4' }]}>Start monitoring</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={st.btnText} onPress={onComplete}><Text style={st.btnTextLabel}>Skip for now</Text></TouchableOpacity>
         </ScrollView>
       )}
@@ -447,9 +571,42 @@ function LiveScreen({ data, debugText }) {
       </View>
 
       <View style={st.stage3d}>
-        <View style={st.ovTL}><Text style={st.ovTLText}>Connected</Text></View>
-        <View style={st.ovTR}><View style={st.pillDk}><View style={st.battMini}><View style={[st.battMiniFill, { width: `${battery}%` }]} /></View><Text style={st.battTxt}>{battery}%</Text></View></View>
-        <Device3D />
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.5 }}>
+           <Svg width="100%" height="100%">
+              <Defs>
+                <Pattern id="grid" width="15" height="15" patternUnits="userSpaceOnUse">
+                  <Path d="M 15 0 L 0 0 0 15" fill="none" stroke="#D1DCD7" strokeWidth="1"/>
+                </Pattern>
+              </Defs>
+              <Rect width="100%" height="100%" fill="url(#grid)" />
+           </Svg>
+        </View>
+
+        <View style={st.ovTL}>
+          <Text style={st.ovTLTextMain}>Inguardia IG-1 <Text style={st.ovTLTextSub}>FW 2.4.1</Text></Text>
+        </View>
+        
+        <View style={st.ovTR}>
+          <View style={st.pillDk}>
+            <View style={st.battMini}>
+              <View style={[st.battMiniFill, { width: `${battery || 81}%` }]} />
+            </View>
+            <Text style={st.battTxt}>{battery || 81}%</Text>
+          </View>
+        </View>
+        
+        <Mechanical3DModel />
+        
+        <View style={st.ovBL}>
+          <View style={[st.pillDk, { paddingLeft: 8 }]}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.aqua, marginRight: 6 }} />
+            <Text style={st.streamTxt}>Streaming · 25 Hz</Text>
+          </View>
+        </View>
+
+        <View style={st.ovBR}>
+          <Text style={st.dragTxt}>Drag to rotate</Text>
+        </View>
       </View>
 
       <View style={st.card}>
@@ -493,8 +650,10 @@ function LiveScreen({ data, debugText }) {
   );
 }
 
+// 🔥 UPDATED HISTORY SCREEN WITH BLOCK 🔥
 function HistoryScreen() {
   const [history, setHistory] = useState([]);
+  const [showReadings, setShowReadings] = useState(false); // Toggle state for readings view
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -511,66 +670,82 @@ function HistoryScreen() {
   const avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length).toFixed(1) : '0.0';
   const totalBites = history.length ? history[0].bites : 0;
 
+  // --- MAIN HISTORY VIEW ---
+  if (!showReadings) {
+    return (
+      <ScrollView contentContainerStyle={st.scroll}>
+        <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>{history.length} readings</Text></View></View>
+
+        <View style={st.miniRow}>
+          <View style={st.mini}><Text style={st.miniLabel}>Avg Heart Rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View></View>
+          <View style={st.mini}><Text style={st.miniLabel}>Avg SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgSpo}</Text><Text style={st.miniUnit}>%</Text></View></View>
+        </View>
+
+        <View style={st.miniRow}>
+          <View style={st.mini}><Text style={st.miniLabel}>Latest Bite Count</Text><Text style={st.miniValue}>{totalBites}</Text></View>
+          <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp}</Text><Text style={st.miniUnit}>°C</Text></View></View>
+        </View>
+
+        <Text style={st.sect}>MORE DETAILS</Text>
+        
+        {/* CLICKABLE BLOCK */}
+        <View style={st.list}>
+          <TouchableOpacity style={st.rowItem} onPress={() => setShowReadings(true)}>
+            <View style={st.actionIco}><Text style={{ fontSize: 10, fontWeight: 'bold' }}>LOG</Text></View>
+            <View style={{ flex: 1 }}>
+              <Text style={st.rowTitle}>Recent Readings</Text>
+              <Text style={st.rowSub}>View detailed history logs</Text>
+            </View>
+            <Text style={st.chev}>&gt;</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={{ height: 20 }} />
+      </ScrollView>
+    );
+  }
+
+  // --- DETAILED READINGS TABLE VIEW ---
   return (
-    <ScrollView contentContainerStyle={st.scroll}>
-      <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>{history.length} readings</Text></View></View>
-
-      <View style={st.miniRow}>
-        <View style={st.mini}><Text style={st.miniLabel}>Avg Heart Rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View></View>
-        <View style={st.mini}><Text style={st.miniLabel}>Avg SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgSpo}</Text><Text style={st.miniUnit}>%</Text></View></View>
+    <View style={{ flex: 1 }}>
+      <View style={st.appbar}>
+        <TouchableOpacity style={st.iconBtn} onPress={() => setShowReadings(false)}>
+          <Text style={st.iconText}>&lt;</Text>
+        </TouchableOpacity>
+        <Text style={[st.appTitle, { flex: 1, textAlign: 'center' }]}>Detailed Logs</Text>
+        <View style={{ width: 40 }} /> {/* Spacer to keep title centered */}
       </View>
 
-      <View style={st.miniRow}>
-        <View style={st.mini}><Text style={st.miniLabel}>Latest Bite Count</Text><Text style={st.miniValue}>{totalBites}</Text></View>
-        <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp}</Text><Text style={st.miniUnit}>°C</Text></View></View>
-      </View>
+      <ScrollView contentContainerStyle={st.scroll}>
+        <View style={st.historyTable}>
+          {/* Table Header */}
+          <View style={st.historyHeader}>
+            <Text style={[st.historyHeaderTxt, { width: 60 }]}>Time</Text>
+            <Text style={st.historyHeaderTxt}>HR</Text>
+            <Text style={st.historyHeaderTxt}>SpO₂</Text>
+            <Text style={st.historyHeaderTxt}>Temp</Text>
+          </View>
 
-      <Text style={st.sect}>RECENT READINGS</Text>
-      <View style={st.list}>
-        {history.length === 0 ? (
-          <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle device connect karein.</Text>
-        ) : (
-          history.map((item, index) => {
-            const date = new Date(item.timestamp);
-            const timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
-            return (
-              <View key={index} style={st.rowItem}>
-                <View style={st.sessionIco}><Text style={{ fontSize: 11, fontWeight: 'bold' }}>{timeStr}</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={st.rowTitle}>HR: {item.hr} | SpO2: {item.spo}% | Temp: {item.temp.toFixed(1)}°C</Text>
-                  <Text style={st.rowSub}>Bites: {item.bites} | Battery: {item.battery}%</Text>
+          {/* Table Rows */}
+          {history.length === 0 ? (
+            <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle device connect karein.</Text>
+          ) : (
+            history.map((item, index) => {
+              const date = new Date(item.timestamp);
+              const timeStr = `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+              return (
+                <View key={index} style={[st.historyRow, index % 2 === 0 && { backgroundColor: '#F9FCFA' }]}>
+                  <Text style={[st.historyCellTxt, { width: 60, fontWeight: '700', color: C.ink }]}>{timeStr}</Text>
+                  <Text style={st.historyCellTxt}>{item.hr}</Text>
+                  <Text style={st.historyCellTxt}>{item.spo}%</Text>
+                  <Text style={st.historyCellTxt}>{item.temp.toFixed(1)}°</Text>
                 </View>
-              </View>
-            );
-          })
-        )}
-      </View>
-      <View style={{ height: 20 }} />
-    </ScrollView>
-  );
-}
-
-function Device3D() {
-  const floatY = useRef(new Animated.Value(0)).current;
-  const ledOpacity = useRef(new Animated.Value(1)).current;
-  const rotZ = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(Animated.sequence([Animated.timing(floatY, { toValue: 1, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }), Animated.timing(floatY, { toValue: 0, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true })])).start();
-    Animated.loop(Animated.sequence([Animated.timing(ledOpacity, { toValue: 0.3, duration: 700, useNativeDriver: true }), Animated.timing(ledOpacity, { toValue: 1, duration: 700, useNativeDriver: true })])).start();
-    Animated.loop(Animated.timing(rotZ, { toValue: 1, duration: 25000, easing: Easing.linear, useNativeDriver: true })).start();
-  }, [floatY, ledOpacity, rotZ]);
-
-  const translateY = floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
-  const rotateDeg = rotZ.interpolate({ inputRange: [0, 0.25, 0.5, 0.75, 1], outputRange: ['-8deg', '82deg', '172deg', '262deg', '352deg'] });
-
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ position: 'absolute', bottom: 30, width: 160, height: 18, borderRadius: 100, backgroundColor: 'rgba(0,0,0,0.18)' }} />
-      <Animated.View style={{ width: 140, height: 100, backgroundColor: '#fff', borderRadius: 30, transform: [{ translateY }, { rotateZ: rotateDeg }], alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
-        <Text style={{ fontSize: 30, color: C.sea, fontWeight: 'bold' }}>IG</Text>
-      </Animated.View>
-      <Animated.View style={{ position: 'absolute', top: '55%', left: '60%', width: 8, height: 8, borderRadius: 4, backgroundColor: '#5fd38d', opacity: ledOpacity, shadowColor: '#5fd38d', shadowOpacity: 1, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }} pointerEvents="none" />
+              );
+            })
+          )}
+        </View>
+        <View style={{ height: 20 }} />
+      </ScrollView>
     </View>
   );
 }
@@ -591,7 +766,18 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
       setRssi(device.rssi);
       toast(`Signal strength: ${device.rssi} dBm`);
     } catch (e) {
-      toast('Could not read signal');
+      console.log("RSSI Error:", e);
+      try {
+        const devices = await bleManager.devices([connectedDeviceId]);
+        if (devices && devices.length > 0 && devices[0].rssi) {
+          setRssi(devices[0].rssi);
+          toast(`Cached Signal: ${devices[0].rssi} dBm`);
+        } else {
+          toast(`Error: ${e.message || 'Could not read signal'}`);
+        }
+      } catch (err) {
+        toast(`Error: ${e.message || 'Could not read signal'}`);
+      }
     } finally {
       setRefreshing(false);
     }
@@ -608,7 +794,9 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
       </View>
 
       <View style={st.devHero}>
-        <View style={st.devHeroIcon}><Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold' }}>IG</Text></View>
+        <View style={st.devHeroIcon}>
+          <BrandLogo size={36} color="#FFF" />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={st.devHeroTitle}>{isConnected ? 'Connected Board' : 'No Device'}</Text>
           <Text style={st.devHeroSub}>{isConnected ? 'Hardware Connection Active' : 'Please connect a device first'}</Text>
@@ -683,7 +871,6 @@ const st = StyleSheet.create({
   h1sub: { fontSize: 14, color: C.ink2, lineHeight: 21, marginBottom: 20 },
   radarWrap: { height: 232, alignItems: 'center', justifyContent: 'center', marginVertical: 10 },
   radarCore: { width: 104, height: 104, borderRadius: 52, backgroundColor: C.sea, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
-  radarIcon: { fontSize: 30, color: '#fff', fontWeight: 'bold' },
   btBadge: { position: 'absolute', top: 6, right: -2, width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 3 },
   btIcon: { color: C.sea, fontWeight: '900', fontSize: 12 },
   foundRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
@@ -692,7 +879,6 @@ const st = StyleSheet.create({
   spinCircle: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#D6F2E4', borderTopColor: '#2E8B57' },
   devCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, marginBottom: 10 },
   devThumb: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
-  devThumbIcon: { fontSize: 18, color: C.sea, fontWeight: '900' },
   devName: { fontSize: 14, fontWeight: '700', color: C.ink },
   devMeta: { fontSize: 11.5, color: C.ink2, fontWeight: '600' },
   calibWrap: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginVertical: 30 },
@@ -700,14 +886,33 @@ const st = StyleSheet.create({
   calibInner: { alignItems: 'center', justifyContent: 'center' },
   calibNumber: { fontSize: 56, fontWeight: '900', color: C.ink },
   calibLabel: { fontSize: 13, color: C.ink2, fontWeight: '700' },
+  
+  sensorBox: { backgroundColor: C.card, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, borderColor: C.line, marginBottom: 10 },
+  sensorRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+  sensorName: { fontSize: 14, fontWeight: '600', color: C.ink },
+  sensorStatus: { fontSize: 14, fontWeight: '700' },
+  sensorDivider: { height: 1, backgroundColor: C.line },
+
   stage3d: { height: 260, borderRadius: 28, backgroundColor: '#E4EEEA', overflow: 'hidden', position: 'relative', marginBottom: 12 },
-  ovTL: { position: 'absolute', top: 14, left: 16, zIndex: 10 },
-  ovTLText: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
-  ovTR: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
-  pillDk: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 26, paddingHorizontal: 10, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.75)' },
-  battMini: { width: 16, height: 10, borderWidth: 1.5, borderColor: C.seaDeep, borderRadius: 2, padding: 1 },
+  ovTL: { position: 'absolute', top: 16, left: 20, zIndex: 10 },
+  ovTLTextMain: { fontSize: 13, fontWeight: '800', color: C.seaDeep },
+  ovTLTextSub: { fontSize: 11, fontWeight: '600', color: C.ink2 },
+  ovTR: { position: 'absolute', top: 14, right: 16, zIndex: 10 },
+  ovBL: { position: 'absolute', bottom: 16, left: 16, zIndex: 10 },
+  ovBR: { position: 'absolute', bottom: 16, right: 16, zIndex: 10 },
+  dragTxt: { fontSize: 12, fontWeight: '600', color: C.ink2 },
+  pillDk: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 28, paddingHorizontal: 10, borderRadius: 14, backgroundColor: '#FFF' },
+  battMini: { width: 18, height: 10, borderWidth: 1.5, borderColor: C.seaDeep, borderRadius: 2, padding: 1 },
   battMiniFill: { height: '100%', backgroundColor: C.sea, borderRadius: 1 },
   battTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
+  streamTxt: { fontSize: 12, fontWeight: '700', color: C.seaDeep },
+
+  historyTable: { backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.line, overflow: 'hidden' },
+  historyHeader: { flexDirection: 'row', backgroundColor: '#E6F4EC', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.line },
+  historyHeaderTxt: { flex: 1, fontSize: 12, fontWeight: '800', color: C.seaDeep },
+  historyRow: { flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#F0F4F2' },
+  historyCellTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: C.ink },
+
   card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10 },
   gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   cardHalf: { flex: 1, backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 6 },
