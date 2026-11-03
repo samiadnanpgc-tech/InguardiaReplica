@@ -2,7 +2,7 @@
 import {
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View,
   TouchableOpacity, Switch, Modal, Animated, Easing, Platform,
-  Linking, PermissionsAndroid, Alert, ActivityIndicator
+  Linking, PermissionsAndroid, Alert, ActivityIndicator, PanResponder
 } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect, Ellipse, Pattern } from 'react-native-svg';
 import { BleManager } from 'react-native-ble-plx';
@@ -27,32 +27,45 @@ function BrandLogo({ size = 40, color = '#FFFFFF' }) {
   );
 }
 
-// 🔥 3D MODEL 🔥
+// 🔥 EXACT 3D MODEL WITH DRAG TO ROTATE 🔥
 function Mechanical3DModel() {
   const floatY = useRef(new Animated.Value(0)).current;
-  const rotateZ = useRef(new Animated.Value(0)).current;
+  const pan = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(floatY, { toValue: 1, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(floatY, { toValue: 0, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
+        Animated.timing(floatY, { toValue: 1, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+        Animated.timing(floatY, { toValue: 0, duration: 2500, easing: Easing.inOut(Easing.ease), useNativeDriver: false })
       ])
     ).start();
+  }, [floatY]);
 
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(rotateZ, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(rotateZ, { toValue: -1, duration: 6000, easing: Easing.inOut(Easing.ease), useNativeDriver: true })
-      ])
-    ).start();
-  }, [floatY, rotateZ]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        pan.setValue(gestureState.dx);
+      },
+      onPanResponderRelease: () => {
+        Animated.spring(pan, {
+          toValue: 0,
+          friction: 6,
+          tension: 40,
+          useNativeDriver: false
+        }).start();
+      }
+    })
+  ).current;
 
   const translateY = floatY.interpolate({ inputRange: [0, 1], outputRange: [6, -6] });
-  const rotate = rotateZ.interpolate({ inputRange: [-1, 1], outputRange: ['-4deg', '4deg'] });
+  const rotate = pan.interpolate({ inputRange: [-300, 300], outputRange: ['-180deg', '180deg'], extrapolate: 'clamp' });
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} {...panResponder.panHandlers}>
       <Animated.View style={{ transform: [{ translateY }, { rotateZ: rotate }] }}>
         <Svg width="220" height="220" viewBox="0 0 200 200">
           <Defs>
@@ -75,16 +88,13 @@ function Mechanical3DModel() {
           </Defs>
 
           <Ellipse cx="100" cy="165" rx="75" ry="15" fill="rgba(0,0,0,0.15)" />
-
           <Path d="M 125 65 L 155 80 L 135 90 L 105 75 Z" fill="url(#blockTop)" />
           <Path d="M 155 80 L 155 140 L 135 150 L 135 90 Z" fill="url(#blockSide)" />
           <Path d="M 105 75 L 135 90 L 135 150 L 105 135 Z" fill="url(#frontGrad)" />
           <Path d="M 125 65 L 155 80" stroke="#555" strokeWidth="1.5" fill="none" />
-
           <Path d="M 80 40 C 30 40, 15 100, 50 145 C 80 180, 120 160, 130 150 L 130 120 C 110 140, 70 140, 55 100 C 45 60, 80 55, 105 65 Z" fill="url(#bodyGrad)" />
           <Path d="M 50 145 C 80 180, 120 160, 130 150 L 130 130 C 120 140, 80 150, 60 125 Z" fill="url(#frontGrad)" />
           <Path d="M 50 145 C 80 180, 120 160, 130 150" stroke="#333" strokeWidth="1" fill="none" />
-
           <Circle cx="85" cy="95" r="14" fill="#E4EEEA" />
           <Circle cx="85" cy="95" r="14" stroke="#000" strokeWidth="4" fill="none" opacity="0.8" />
           <Path d="M 85 81 C 70 81, 60 100, 70 120" stroke="#111" strokeWidth="3" fill="none" />
@@ -147,6 +157,7 @@ function RadarPulse() {
   return <Animated.View style={[rp.ring, { opacity, transform: [{ scale }] }]} pointerEvents="none" />;
 }
 
+// 🔥 PUMPING HEART EMOJI 🔥
 function PumpingHeart() {
   const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -158,7 +169,7 @@ function PumpingHeart() {
       ]),
     ).start();
   }, [scale]);
-  return <Animated.Text style={{ fontSize: 12, color: C.heart, fontWeight: 'bold', transform: [{ scale }] }}>HR</Animated.Text>;
+  return <Animated.Text style={{ fontSize: 16, transform: [{ scale }] }}>❤️</Animated.Text>;
 }
 
 function SmoothECGWave({ hr }) {
@@ -214,7 +225,6 @@ export default function App() {
   const [screen, setScreen] = useState('live');
   const [toast, setToast] = useState('');
   const [liveData, setLiveData] = useState({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 });
-  const [debugText, setDebugText] = useState('Waiting for connection...');
   const [connectedDeviceId, setConnectedDeviceId] = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2200); };
@@ -260,13 +270,12 @@ export default function App() {
         <SetupFlow
           onComplete={() => setPhase('app')}
           onDataReceived={saveToHistory}
-          onDebug={setDebugText}
           onConnected={setConnectedDeviceId}
         />
       )}
       {phase === 'app' && (
         <View style={{ flex: 1 }}>
-          {screen === 'live' && <LiveScreen data={liveData} debugText={debugText} />}
+          {screen === 'live' && <LiveScreen data={liveData} />}
           {screen === 'history' && <HistoryScreen />}
           {screen === 'device' && (
             <DeviceScreen
@@ -284,7 +293,7 @@ export default function App() {
   );
 }
 
-function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
+function SetupFlow({ onComplete, onDataReceived, onConnected }) {
   const [step, setStep] = useState(2);
   const [helpOpen, setHelpOpen] = useState(false);
   const [pairing, setPairing] = useState(false);
@@ -354,42 +363,34 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
     bleManager.stopDeviceScan();
     setPairing(false);
     setConnectingDeviceId(device.id);
-    onDebug("Connecting to device...");
 
     try {
       const connectedDevice = await bleManager.connectToDevice(device.id, { timeout: 15000 });
-      onDebug("Connected! Discovering services...");
       await connectedDevice.requestMTU(185);
       await connectedDevice.discoverAllServicesAndCharacteristics();
       onConnected(connectedDevice.id);
 
       const services = await connectedDevice.services();
-      let debugMsg = "SERVICES FOUND:\n";
       let targetService = null;
       let targetChar = null;
 
       for (let s of services) {
-        debugMsg += `Svc: ${s.uuid}\n`;
         const chars = await connectedDevice.characteristicsForService(s.uuid);
         for (let c of chars) {
-          debugMsg += `  Char: ${c.uuid} Notify:${c.isNotifiable}\n`;
           if (c.isNotifiable && !targetChar) {
             targetService = s.uuid;
             targetChar = c.uuid;
           }
         }
       }
-      onDebug(debugMsg);
 
       if (targetChar) {
         bleManager.monitorCharacteristicForDevice(
           connectedDevice.id, targetService, targetChar,
           (err, char) => {
-            if (err) { onDebug(`Monitor Err: ${err.message}`); return; }
+            if (err) return;
             if (char?.value) {
               const bytes = base64ToBytes(char.value);
-              onDebug(`RAW: [${bytes.join(', ')}]`);
-
               if (bytes.length >= 18) {
                 const hr = bytes[8];
                 const spo = bytes[9];
@@ -419,14 +420,11 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
             }
           }
         );
-      } else {
-        onDebug("No Notifiable Characteristic found!");
       }
 
       setTimeout(() => { setConnectingDeviceId(null); setStep(3); }, 700);
 
     } catch (err) {
-      onDebug(`Error: ${err.message}`);
       setConnectingDeviceId(null);
       Alert.alert('Connection Error', err.message);
     } finally {
@@ -558,17 +556,12 @@ function SetupFlow({ onComplete, onDataReceived, onDebug, onConnected }) {
   );
 }
 
-function LiveScreen({ data, debugText }) {
+// 🔥 UPDATED LIVE SCREEN WITH ICONS 🔥
+function LiveScreen({ data }) {
   const { hr, spo, temp, bites, battery, movement } = data;
   return (
     <ScrollView contentContainerStyle={st.scroll}>
       <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>Live monitor</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Real-time Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
-
-      <View style={{ backgroundColor: '#000', padding: 10, borderRadius: 10, marginBottom: 10 }}>
-        <Text style={{ color: '#0f0', fontFamily: 'monospace', fontSize: 10 }}>
-          {debugText}
-        </Text>
-      </View>
 
       <View style={st.stage3d}>
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.5 }}>
@@ -597,20 +590,18 @@ function LiveScreen({ data, debugText }) {
         
         <Mechanical3DModel />
         
-        <View style={st.ovBL}>
-          <View style={[st.pillDk, { paddingLeft: 8 }]}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.aqua, marginRight: 6 }} />
-            <Text style={st.streamTxt}>Streaming · 25 Hz</Text>
-          </View>
-        </View>
-
         <View style={st.ovBR}>
           <Text style={st.dragTxt}>Drag to rotate</Text>
         </View>
       </View>
 
+      {/* Heart Rate Card */}
       <View style={st.card}>
-        <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#FDE7E8' }]}><PumpingHeart /></View><Text style={st.chTitle}>Heart rate</Text><Text style={st.chAside}>live</Text></View>
+        <View style={st.ch}>
+          <View style={[st.chIco, { backgroundColor: '#FDE7E8' }]}><PumpingHeart /></View>
+          <Text style={st.chTitle}>Heart rate</Text>
+          <Text style={st.chAside}>updated now</Text>
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <View><View style={st.valRow}><Text style={st.valNum}>{hr}</Text><Text style={st.valUnit}>BPM</Text></View><Text style={st.subText}>Resting range · 58–84</Text></View>
           <SmoothECGWave hr={hr || 0} />
@@ -618,31 +609,79 @@ function LiveScreen({ data, debugText }) {
       </View>
 
       <View style={st.gridRow}>
+        {/* SpO2 Card */}
         <View style={st.cardHalf}>
-          <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#DDF0FB' }]}><Text style={{ fontSize: 14, color: '#2E86C1', fontWeight: 'bold' }}>O2</Text></View><Text style={st.chTitle}>SpO₂</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 }}><View style={st.spoCircle}><Text style={{ fontSize: 16, fontWeight: '900', color: C.ink }}>{spo}</Text></View><Text style={{ fontSize: 18, fontWeight: '700', color: C.ink2 }}>%</Text></View>
+          <View style={st.ch}>
+            <View style={[st.chIco, { backgroundColor: '#DDF0FB' }]}><Text style={{ fontSize: 14 }}>💧</Text></View>
+            <Text style={st.chTitle}>SpO₂</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <View style={st.spoCircle}><Text style={{ fontSize: 16, fontWeight: '900', color: C.ink }}>{spo}</Text></View><Text style={{ fontSize: 18, fontWeight: '700', color: C.ink2 }}>%</Text>
+          </View>
+          <Text style={[st.subText, { marginTop: 10 }]}>Signal <SignalBars strength={3} /> good</Text>
         </View>
+
+        {/* Temperature Card */}
         <View style={st.cardHalf}>
-          <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#FDEEE3' }]}><Text style={{ fontSize: 14, color: '#D2691E', fontWeight: 'bold' }}>T</Text></View><Text style={st.chTitle}>Temperature</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 6 }}><Text style={[st.valNum, { fontSize: 26 }]}>{temp ? temp.toFixed(1) : '0.0'}</Text><Text style={st.valUnit}>°C</Text></View>
+          <View style={st.ch}>
+            <View style={[st.chIco, { backgroundColor: '#FDEEE3' }]}><Text style={{ fontSize: 14 }}>🌡️</Text></View>
+            <Text style={st.chTitle}>Temperature</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 6 }}>
+            <Text style={[st.valNum, { fontSize: 26 }]}>{temp ? temp.toFixed(1) : '0.0'}</Text>
+            <Text style={st.valUnit}>°C</Text>
+          </View>
+          <View style={{ height: 6, borderRadius: 3, backgroundColor: '#E1EEE8', marginTop: 8, flexDirection: 'row', overflow: 'hidden' }}>
+            <View style={{ flex: 1, backgroundColor: '#3CC8A0' }} />
+            <View style={{ flex: 1, backgroundColor: '#E8A33D' }} />
+            <View style={{ flex: 1, backgroundColor: '#E5484D' }} />
+          </View>
+          <Text style={[st.subText, { marginTop: 6 }]}>Oral · normal 36.1–37.5</Text>
         </View>
       </View>
 
       <View style={st.gridRow}>
+        {/* Bite Count Card */}
         <View style={st.cardHalf}>
-          <View style={st.ch}><View style={[st.chIco, { backgroundColor: C.mint }]}><Text style={{ fontSize: 14, color: C.sea, fontWeight: 'bold' }}>B</Text></View><Text style={st.chTitle}>Bite count</Text></View>
-          <View style={st.valRow}><Text style={[st.valNum, { fontSize: 26 }]}>{bites}</Text><Text style={st.valUnit}>total</Text></View>
+          <View style={st.ch}>
+            <View style={[st.chIco, { backgroundColor: C.mint }]}><Text style={{ fontSize: 14 }}>🦷</Text></View>
+            <Text style={st.chTitle}>Bite count</Text>
+          </View>
+          <View style={st.valRow}><Text style={[st.valNum, { fontSize: 26 }]}>{bites}</Text><Text style={st.valUnit}>today</Text></View>
+          <View style={st.biteBarsWrap}>
+            {[...Array(12)].map((_, i) => (
+               <View key={i} style={[st.biteBar, { height: 10 + Math.random() * 20, backgroundColor: i === 11 ? C.sea : C.mint }]} />
+            ))}
+          </View>
         </View>
+
+        {/* Battery Card */}
         <View style={st.cardHalf}>
-          <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#E6F4EC' }]}><Text style={{ fontSize: 14, color: C.sea, fontWeight: 'bold' }}>%</Text></View><Text style={st.chTitle}>Battery</Text></View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}><View style={st.battShell}><View style={[st.battFill, { width: `${battery}%` }]} /></View><Text style={[st.valNum, { fontSize: 22, marginLeft: 8 }]}>{battery}%</Text></View>
+          <View style={st.ch}>
+            <View style={[st.chIco, { backgroundColor: '#E6F4EC' }]}><Text style={{ fontSize: 14 }}>⚡</Text></View>
+            <Text style={st.chTitle}>Battery</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+            <View style={st.battShell}><View style={[st.battFill, { width: `${battery}%` }]} /></View>
+            <Text style={[st.valNum, { fontSize: 22, marginLeft: 8 }]}>{battery}%</Text>
+          </View>
+          <Text style={[st.subText, { marginTop: 6 }]}>≈ 9 h 10 m remaining</Text>
         </View>
       </View>
 
+      {/* Movement Card */}
       <View style={st.card}>
-        <View style={st.ch}><View style={[st.chIco, { backgroundColor: '#FFF2DC' }]}><Text style={{ fontSize: 14, color: '#C07A12', fontWeight: 'bold' }}>M</Text></View><Text style={st.chTitle}>Movement</Text><Text style={st.chAside}>IMU · {movement}%</Text></View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 6 }}>
+        <View style={st.ch}>
+          <View style={[st.chIco, { backgroundColor: '#FFF2DC' }]}><Text style={{ fontSize: 14 }}>✥</Text></View>
+          <Text style={st.chTitle}>Movement</Text>
+          <Text style={st.chAside}>IMU · g</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 10 }}>
           <View style={[st.mvPill, { backgroundColor: movement > 50 ? '#FFF2DC' : C.mint }]}><Text style={[st.mvText, { color: movement > 50 ? '#C07A12' : C.seaDeep }]}>● {movement > 50 ? 'Moving' : 'Still'}</Text></View>
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={st.axisRow}><Text style={st.axisLbl}>X</Text><View style={st.axisTrack}><View style={[st.axisFillLeft, { width: `${Math.min(100, Math.max(0, movement))}%` }]} /></View></View>
+            <View style={st.axisRow}><Text style={st.axisLbl}>Y</Text><View style={st.axisTrack}><View style={[st.axisFillLeft, { width: `${Math.min(100, Math.max(0, 100 - movement))}%` }]} /></View></View>
+          </View>
         </View>
       </View>
       <Text style={st.disclaim}>Real-time data from hardware.</Text>
@@ -650,10 +689,9 @@ function LiveScreen({ data, debugText }) {
   );
 }
 
-// 🔥 UPDATED HISTORY SCREEN WITH BLOCK 🔥
 function HistoryScreen() {
   const [history, setHistory] = useState([]);
-  const [showReadings, setShowReadings] = useState(false); // Toggle state for readings view
+  const [showReadings, setShowReadings] = useState(false);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -670,7 +708,6 @@ function HistoryScreen() {
   const avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length).toFixed(1) : '0.0';
   const totalBites = history.length ? history[0].bites : 0;
 
-  // --- MAIN HISTORY VIEW ---
   if (!showReadings) {
     return (
       <ScrollView contentContainerStyle={st.scroll}>
@@ -688,7 +725,6 @@ function HistoryScreen() {
 
         <Text style={st.sect}>MORE DETAILS</Text>
         
-        {/* CLICKABLE BLOCK */}
         <View style={st.list}>
           <TouchableOpacity style={st.rowItem} onPress={() => setShowReadings(true)}>
             <View style={st.actionIco}><Text style={{ fontSize: 10, fontWeight: 'bold' }}>LOG</Text></View>
@@ -705,7 +741,6 @@ function HistoryScreen() {
     );
   }
 
-  // --- DETAILED READINGS TABLE VIEW ---
   return (
     <View style={{ flex: 1 }}>
       <View style={st.appbar}>
@@ -713,12 +748,11 @@ function HistoryScreen() {
           <Text style={st.iconText}>&lt;</Text>
         </TouchableOpacity>
         <Text style={[st.appTitle, { flex: 1, textAlign: 'center' }]}>Detailed Logs</Text>
-        <View style={{ width: 40 }} /> {/* Spacer to keep title centered */}
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={st.scroll}>
         <View style={st.historyTable}>
-          {/* Table Header */}
           <View style={st.historyHeader}>
             <Text style={[st.historyHeaderTxt, { width: 60 }]}>Time</Text>
             <Text style={st.historyHeaderTxt}>HR</Text>
@@ -726,7 +760,6 @@ function HistoryScreen() {
             <Text style={st.historyHeaderTxt}>Temp</Text>
           </View>
 
-          {/* Table Rows */}
           {history.length === 0 ? (
             <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle device connect karein.</Text>
           ) : (
@@ -841,10 +874,24 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
   );
 }
 
+// 🔥 BOTTOM NAV WITH EMOJIS 🔥
 function BottomNav({ active, onChange }) {
-  const items = [{ key: 'live', label: 'Live', icon: '~' }, { key: 'history', label: 'History', icon: 'H' }, { key: 'device', label: 'Device', icon: 'D' }];
+  const items = [
+    { key: 'live', label: 'Live', icon: '〰️' }, 
+    { key: 'history', label: 'History', icon: '🕒' }, 
+    { key: 'device', label: 'Device', icon: '🦷' }
+  ];
   return (
-    <View style={st.navbar}>{items.map(it => (<TouchableOpacity key={it.key} style={st.navItem} onPress={() => onChange(it.key)}><View style={[st.navPill, active === it.key && st.navPillOn]}><Text style={{ fontSize: 16, fontWeight: 'bold', color: C.ink2 }}>{it.icon}</Text></View><Text style={[st.navLabel, active === it.key && st.navLabelOn]}>{it.label}</Text></TouchableOpacity>))}</View>
+    <View style={st.navbar}>
+      {items.map(it => (
+        <TouchableOpacity key={it.key} style={st.navItem} onPress={() => onChange(it.key)}>
+          <View style={[st.navPill, active === it.key && st.navPillOn]}>
+            <Text style={{ fontSize: 18 }}>{it.icon}</Text>
+          </View>
+          <Text style={[st.navLabel, active === it.key && st.navLabelOn]}>{it.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 }
 
@@ -898,14 +945,12 @@ const st = StyleSheet.create({
   ovTLTextMain: { fontSize: 13, fontWeight: '800', color: C.seaDeep },
   ovTLTextSub: { fontSize: 11, fontWeight: '600', color: C.ink2 },
   ovTR: { position: 'absolute', top: 14, right: 16, zIndex: 10 },
-  ovBL: { position: 'absolute', bottom: 16, left: 16, zIndex: 10 },
   ovBR: { position: 'absolute', bottom: 16, right: 16, zIndex: 10 },
   dragTxt: { fontSize: 12, fontWeight: '600', color: C.ink2 },
   pillDk: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 28, paddingHorizontal: 10, borderRadius: 14, backgroundColor: '#FFF' },
   battMini: { width: 18, height: 10, borderWidth: 1.5, borderColor: C.seaDeep, borderRadius: 2, padding: 1 },
   battMiniFill: { height: '100%', backgroundColor: C.sea, borderRadius: 1 },
   battTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
-  streamTxt: { fontSize: 12, fontWeight: '700', color: C.seaDeep },
 
   historyTable: { backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.line, overflow: 'hidden' },
   historyHeader: { flexDirection: 'row', backgroundColor: '#E6F4EC', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.line },
@@ -927,8 +972,14 @@ const st = StyleSheet.create({
   spoCircle: { width: 50, height: 50, borderRadius: 25, borderWidth: 5, borderColor: C.sea, alignItems: 'center', justifyContent: 'center' },
   battShell: { width: 54, height: 26, borderRadius: 7, borderWidth: 2, borderColor: C.ink, padding: 2 },
   battFill: { height: '100%', borderRadius: 4, backgroundColor: C.sea },
+  biteBarsWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 30, marginTop: 6 },
+  biteBar: { flex: 1, borderRadius: 2 },
   mvPill: { flexDirection: 'row', alignItems: 'center', height: 34, paddingHorizontal: 14, borderRadius: 17 },
   mvText: { fontWeight: '800', fontSize: 14 },
+  axisRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  axisLbl: { fontSize: 10, fontWeight: '700', color: C.ink2, width: 12 },
+  axisTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.line, position: 'relative', overflow: 'hidden' },
+  axisFillLeft: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: C.sea, borderRadius: 3 },
   disclaim: { fontSize: 10.5, color: C.ink2, textAlign: 'center', paddingHorizontal: 20, marginTop: 16, lineHeight: 15 },
   miniRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   mini: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 20, padding: 12 },
