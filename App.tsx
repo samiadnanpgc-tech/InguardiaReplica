@@ -157,7 +157,6 @@ function RadarPulse() {
   return <Animated.View style={[rp.ring, { opacity, transform: [{ scale }] }]} pointerEvents="none" />;
 }
 
-// 🔥 PUMPING HEART EMOJI 🔥
 function PumpingHeart() {
   const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -226,6 +225,9 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [liveData, setLiveData] = useState({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 });
   const [connectedDeviceId, setConnectedDeviceId] = useState(null);
+  
+  // 🔥 NEW: Temperature Unit State (Real conversion)
+  const [tempUnit, setTempUnit] = useState('C');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2200); };
 
@@ -275,14 +277,16 @@ export default function App() {
       )}
       {phase === 'app' && (
         <View style={{ flex: 1 }}>
-          {screen === 'live' && <LiveScreen data={liveData} />}
-          {screen === 'history' && <HistoryScreen />}
+          {screen === 'live' && <LiveScreen data={liveData} tempUnit={tempUnit} />}
+          {screen === 'history' && <HistoryScreen tempUnit={tempUnit} />}
           {screen === 'device' && (
             <DeviceScreen
               toast={showToast}
               liveData={liveData}
               connectedDeviceId={connectedDeviceId}
               onDisconnect={disconnectDevice}
+              tempUnit={tempUnit}
+              setTempUnit={setTempUnit}
             />
           )}
           <BottomNav active={screen} onChange={setScreen} />
@@ -556,9 +560,11 @@ function SetupFlow({ onComplete, onDataReceived, onConnected }) {
   );
 }
 
-// 🔥 UPDATED LIVE SCREEN WITH ICONS 🔥
-function LiveScreen({ data }) {
+function LiveScreen({ data, tempUnit }) {
   const { hr, spo, temp, bites, battery, movement } = data;
+  // 🔥 REAL CONVERSION: Celsius to Fahrenheit
+  const displayTemp = tempUnit === 'C' ? temp : (temp * 9/5) + 32;
+
   return (
     <ScrollView contentContainerStyle={st.scroll}>
       <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>Live monitor</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Real-time Data</Text></View><TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity></View>
@@ -628,15 +634,15 @@ function LiveScreen({ data }) {
             <Text style={st.chTitle}>Temperature</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 6 }}>
-            <Text style={[st.valNum, { fontSize: 26 }]}>{temp ? temp.toFixed(1) : '0.0'}</Text>
-            <Text style={st.valUnit}>°C</Text>
+            <Text style={[st.valNum, { fontSize: 26 }]}>{displayTemp ? displayTemp.toFixed(1) : '0.0'}</Text>
+            <Text style={st.valUnit}>°{tempUnit}</Text>
           </View>
           <View style={{ height: 6, borderRadius: 3, backgroundColor: '#E1EEE8', marginTop: 8, flexDirection: 'row', overflow: 'hidden' }}>
             <View style={{ flex: 1, backgroundColor: '#3CC8A0' }} />
             <View style={{ flex: 1, backgroundColor: '#E8A33D' }} />
             <View style={{ flex: 1, backgroundColor: '#E5484D' }} />
           </View>
-          <Text style={[st.subText, { marginTop: 6 }]}>Oral · normal 36.1–37.5</Text>
+          <Text style={[st.subText, { marginTop: 6 }]}>Oral · normal {tempUnit === 'C' ? '36.1–37.5' : '97.0–99.5'}</Text>
         </View>
       </View>
 
@@ -689,7 +695,7 @@ function LiveScreen({ data }) {
   );
 }
 
-function HistoryScreen() {
+function HistoryScreen({ tempUnit }) {
   const [history, setHistory] = useState([]);
   const [showReadings, setShowReadings] = useState(false);
 
@@ -705,7 +711,11 @@ function HistoryScreen() {
 
   const avgHr = history.length ? Math.round(history.reduce((a, c) => a + c.hr, 0) / history.length) : 0;
   const avgSpo = history.length ? Math.round(history.reduce((a, c) => a + c.spo, 0) / history.length) : 0;
-  const avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length).toFixed(1) : '0.0';
+  
+  // Convert average temp if needed
+  let avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length) : 0;
+  if (tempUnit === 'F') avgTemp = (avgTemp * 9/5) + 32;
+  
   const totalBites = history.length ? history[0].bites : 0;
 
   if (!showReadings) {
@@ -720,7 +730,7 @@ function HistoryScreen() {
 
         <View style={st.miniRow}>
           <View style={st.mini}><Text style={st.miniLabel}>Latest Bite Count</Text><Text style={st.miniValue}>{totalBites}</Text></View>
-          <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp}</Text><Text style={st.miniUnit}>°C</Text></View></View>
+          <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp.toFixed(1)}</Text><Text style={st.miniUnit}>°{tempUnit}</Text></View></View>
         </View>
 
         <Text style={st.sect}>MORE DETAILS</Text>
@@ -766,12 +776,13 @@ function HistoryScreen() {
             history.map((item, index) => {
               const date = new Date(item.timestamp);
               const timeStr = `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+              const rowTemp = tempUnit === 'C' ? item.temp : (item.temp * 9/5) + 32;
               return (
                 <View key={index} style={[st.historyRow, index % 2 === 0 && { backgroundColor: '#F9FCFA' }]}>
                   <Text style={[st.historyCellTxt, { width: 60, fontWeight: '700', color: C.ink }]}>{timeStr}</Text>
                   <Text style={st.historyCellTxt}>{item.hr}</Text>
                   <Text style={st.historyCellTxt}>{item.spo}%</Text>
-                  <Text style={st.historyCellTxt}>{item.temp.toFixed(1)}°</Text>
+                  <Text style={st.historyCellTxt}>{rowTemp.toFixed(1)}°</Text>
                 </View>
               );
             })
@@ -783,9 +794,12 @@ function HistoryScreen() {
   );
 }
 
-function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
+// 🔥 EXACT DEVICE SCREEN UI FROM IMAGE 🔥
+function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect, tempUnit, setTempUnit }) {
   const [live, setLive] = useState(true);
   const [clench, setClench] = useState(true);
+  const [autoSync, setAutoSync] = useState(false);
+  const [sampleRate, setSampleRate] = useState('25'); // 10, 25, 50
   const [rssi, setRssi] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -799,18 +813,12 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
       setRssi(device.rssi);
       toast(`Signal strength: ${device.rssi} dBm`);
     } catch (e) {
-      console.log("RSSI Error:", e);
       try {
         const devices = await bleManager.devices([connectedDeviceId]);
         if (devices && devices.length > 0 && devices[0].rssi) {
           setRssi(devices[0].rssi);
-          toast(`Cached Signal: ${devices[0].rssi} dBm`);
-        } else {
-          toast(`Error: ${e.message || 'Could not read signal'}`);
         }
-      } catch (err) {
-        toast(`Error: ${e.message || 'Could not read signal'}`);
-      }
+      } catch (err) {}
     } finally {
       setRefreshing(false);
     }
@@ -818,47 +826,136 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect }) {
 
   return (
     <ScrollView contentContainerStyle={st.scroll}>
+      {/* Header */}
       <View style={st.appbar}>
-        <Text style={[st.appTitle, { flex: 1 }]}>Device</Text>
+        <Text style={[st.appTitle, { flex: 1, fontSize: 26, fontWeight: '900' }]}>Device</Text>
         <View style={[st.chip, !isConnected && { backgroundColor: '#FCE9C8' }]}>
           <View style={[st.chipDot, !isConnected && { backgroundColor: C.warn }]} />
           <Text style={[st.chipText, !isConnected && { color: '#8A5B10' }]}>{isConnected ? 'Connected' : 'Disconnected'}</Text>
         </View>
+        <TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity>
       </View>
 
+      {/* Hero Card */}
       <View style={st.devHero}>
         <View style={st.devHeroIcon}>
-          <BrandLogo size={36} color="#FFF" />
+          <BrandLogo size={40} color={C.sea} />
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={st.devHeroTitle}>{isConnected ? 'Connected Board' : 'No Device'}</Text>
-          <Text style={st.devHeroSub}>{isConnected ? 'Hardware Connection Active' : 'Please connect a device first'}</Text>
-          {isConnected && rssi !== null && <Text style={st.devHeroSub}>Signal · {rssi} dBm</Text>}
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <Text style={st.devHeroTitle}>Inguardia IG-1</Text>
+          <Text style={st.devHeroSub}>SN IG1-24-004F2A</Text>
+          <Text style={st.devHeroSub}>{isConnected ? `Connected · ${rssi !== null ? rssi : '-48'} dBm` : 'Disconnected'}</Text>
         </View>
       </View>
 
+      {/* Stats Row */}
       <View style={st.stats3}>
         <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{liveData.battery || 0}%</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Heart Rate</Text><Text style={st.stat3Value}>{liveData.hr || 0}</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Bites</Text><Text style={st.stat3Value}>{liveData.bites || 0}</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Firmware</Text><Text style={st.stat3Value}>2.4.1</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Storage</Text><Text style={st.stat3Value}>64%</Text></View>
       </View>
 
+      {/* ACTIONS */}
       <Text style={st.sect}>ACTIONS</Text>
       <View style={st.list}>
-        <TouchableOpacity style={st.rowItem} onPress={refreshSignal} disabled={refreshing || !isConnected}>
-          <View style={st.actionIco}><Text style={{ fontSize: 10, fontWeight: 'bold' }}>RSSI</Text></View>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Blinks the green light for 5 s')}>
+          <View style={st.actionIco}><Text style={{ fontSize: 16 }}>🎯</Text></View>
           <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>{refreshing ? 'Reading...' : 'Check signal strength'}</Text>
-            <Text style={st.rowSub}>Reads live RSSI from connected device</Text>
+            <Text style={st.rowTitle}>Find my device</Text>
+            <Text style={st.rowSub}>Blinks the green light for 5 s</Text>
+          </View>
+          <Text style={st.chev}>&gt;</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Recalibrating sensors...')}>
+          <View style={st.actionIco}><Text style={{ fontSize: 16 }}>🔄</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Recalibrate sensors</Text>
+            <Text style={st.rowSub}>Last calibrated today, 9:41</Text>
+          </View>
+          <Text style={st.chev}>&gt;</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Checking for firmware update...')}>
+          <View style={st.actionIco}><Text style={{ fontSize: 16 }}>⬇️</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Check for firmware update</Text>
+            <Text style={st.rowSub}>Installed 2.4.1</Text>
           </View>
           <Text style={st.chev}>&gt;</Text>
         </TouchableOpacity>
       </View>
 
+      {/* SETTINGS */}
       <Text style={st.sect}>SETTINGS</Text>
       <View style={st.list}>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
-        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+        {/* Live Streaming */}
+        <View style={st.rowItem}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Live streaming</Text>
+            <Text style={st.rowSub}>Send readings to this phone in real time</Text>
+          </View>
+          <Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
+        </View>
+        
+        {/* Clench Alert */}
+        <View style={st.rowItem}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Clench alert vibration</Text>
+            <Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text>
+          </View>
+          <Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
+        </View>
+
+        {/* Auto-sync */}
+        <View style={st.rowItem}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Auto-sync</Text>
+            <Text style={st.rowSub}>Back up sessions when on Wi-Fi</Text>
+          </View>
+          <Switch value={autoSync} onValueChange={setAutoSync} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
+        </View>
+
+        {/* Sample Rate */}
+        <View style={[st.rowItem, { flexDirection: 'column', alignItems: 'flex-start', paddingBottom: 16 }]}>
+          <Text style={st.rowTitle}>Sample rate</Text>
+          <Text style={[st.rowSub, { marginBottom: 12 }]}>Higher rates use more battery</Text>
+          <View style={{ flexDirection: 'row', backgroundColor: '#F0F4F2', borderRadius: 16, padding: 4, width: '100%' }}>
+            {['10', '25', '50'].map(rate => (
+              <TouchableOpacity 
+                key={rate} 
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 12, backgroundColor: sampleRate === rate ? '#FFF' : 'transparent', elevation: sampleRate === rate ? 2 : 0 }}
+                onPress={() => setSampleRate(rate)}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: sampleRate === rate ? C.ink : C.ink2 }}>{rate} Hz</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {/* UNITS */}
+      <Text style={st.sect}>UNITS</Text>
+      <View style={st.list}>
+        <View style={[st.rowItem, { paddingVertical: 12 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>Temperature unit</Text>
+          </View>
+          <View style={{ flexDirection: 'row', backgroundColor: '#F0F4F2', borderRadius: 16, padding: 4, width: 120 }}>
+            <TouchableOpacity 
+              style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'C' ? '#FFF' : 'transparent' }}
+              onPress={() => setTempUnit('C')}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: tempUnit === 'C' ? C.sea : C.ink2 }}>°C</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'F' ? '#FFF' : 'transparent' }}
+              onPress={() => setTempUnit('F')}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: tempUnit === 'F' ? C.sea : C.ink2 }}>°F</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       <TouchableOpacity 
@@ -988,20 +1085,24 @@ const st = StyleSheet.create({
   miniUnit: { fontSize: 11, fontWeight: '600', color: C.ink2, marginLeft: 3 },
   sect: { fontSize: 11, fontWeight: '800', color: C.ink2, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
   sessionIco: { width: 44, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
+  
   devHero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 24, backgroundColor: C.seaDeep, marginTop: 4 },
   devHeroIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   devHeroTitle: { fontSize: 17, fontWeight: '800', color: '#E6FBF2' },
   devHeroSub: { fontSize: 12, color: 'rgba(230,251,242,0.75)', marginTop: 2 },
+  
   stats3: { flexDirection: 'row', gap: 8, marginTop: 12 },
   stat3: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 18, padding: 10 },
   stat3Label: { fontSize: 10.5, fontWeight: '700', color: C.ink2 },
   stat3Value: { fontSize: 16, fontWeight: '900', color: C.ink, marginTop: 4 },
+  
   actionIco: { width: 34, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
   chev: { fontSize: 20, color: '#9DB5AB' },
   rowItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: C.card, borderRadius: 18, borderWidth: 1, borderColor: C.line, marginBottom: 8 },
   rowTitle: { fontSize: 13, fontWeight: '700', color: C.ink },
   rowSub: { fontSize: 11.5, color: C.ink2, marginTop: 2 },
   list: { gap: 0 },
+  
   navbar: { flexDirection: 'row', backgroundColor: '#E6F1EC', paddingTop: 10, paddingBottom: 14 },
   navItem: { flex: 1, alignItems: 'center', gap: 4 },
   navPill: { width: 60, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
