@@ -147,6 +147,7 @@ function PumpingHeart() {
   return <Animated.Text style={{ fontSize: 16, transform: [{ scale }] }}>❤️</Animated.Text>;
 }
 
+// 🔥 FIXED: ECG WAVE ONLY RUNS WHEN HR > 0 (JS DRIVER + PROPER STOP) 🔥
 function SmoothECGWave({ hr }) {
   const VIEW_W = 150; const HEIGHT = 50; const BASELINE = HEIGHT / 2; const AMP = 18;
   const POINT_W = 1.2; const POINTS_PER_BEAT = 80; const CYCLE_W = POINTS_PER_BEAT * POINT_W;
@@ -172,11 +173,33 @@ function SmoothECGWave({ hr }) {
   }
 
   const scrollX = useRef(new Animated.Value(0)).current;
+  const animRef = useRef(null);
+
   useEffect(() => {
+    // Pehle purani animation ko rok do
+    if (animRef.current) {
+      animRef.current.stop();
+      animRef.current = null;
+    }
+
+    // Agar HR 0 hai (device connected nahi), toh line ko start par freeze kar do
+    if (!hr || hr <= 0) {
+      scrollX.setValue(0);
+      return;
+    }
+    
+    // Jab asli HR data aaye, tab line chalao (useNativeDriver FALSE taaki foran ruk sake)
     scrollX.setValue(0);
-    const beatDuration = Math.max(500, (60 / (hr || 72)) * 1000);
-    const anim = Animated.loop(Animated.timing(scrollX, { toValue: -CYCLE_W, duration: beatDuration, easing: Easing.linear, useNativeDriver: true }));
-    anim.start(); return () => anim.stop();
+    const beatDuration = Math.max(500, (60 / hr) * 1000);
+    
+    animRef.current = Animated.loop(
+      Animated.timing(scrollX, { toValue: -CYCLE_W, duration: beatDuration, easing: Easing.linear, useNativeDriver: false })
+    );
+    animRef.current.start(); 
+    
+    return () => {
+      if (animRef.current) animRef.current.stop();
+    };
   }, [hr, CYCLE_W, scrollX]);
 
   return (
@@ -190,7 +213,7 @@ function SmoothECGWave({ hr }) {
           <Path d={pathRef.current} stroke={C.heart} strokeWidth={2} fill="none" strokeLinejoin="round" strokeLinecap="round" />
         </Svg>
       </Animated.View>
-      <View style={[wave.liveDot, { top: HEIGHT / 2 - 5 }]} />
+      {hr > 0 && <View style={[wave.liveDot, { top: HEIGHT / 2 - 5 }]} />}
     </View>
   );
 }
@@ -221,6 +244,7 @@ export default function App() {
       try {
         await bleManager.cancelDeviceConnection(connectedDevice.id);
         setConnectedDevice({ id: null, name: 'Unknown Device' });
+        setLiveData({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 }); // Reset data
         setPhase('setup');
         showToast('Device disconnected successfully');
       } catch (e) {
@@ -233,6 +257,7 @@ export default function App() {
     if (!connectedDevice.id) return;
     const sub = bleManager.onDeviceDisconnected(connectedDevice.id, () => {
       setConnectedDevice({ id: null, name: 'Unknown Device' });
+      setLiveData({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 }); // Reset data
       setPhase('setup');
       showToast('Device disconnected');
     });
@@ -691,7 +716,6 @@ function HistoryScreen({ tempUnit }) {
   let avgTemp = filteredHistory.length ? (filteredHistory.reduce((a, c) => a + c.temp, 0) / filteredHistory.length) : 0;
   if (tempUnit === 'F' && avgTemp > 0) avgTemp = (avgTemp * 9/5) + 32;
 
-  // Graph Configuration
   const graphWidth = 260;
   const graphHeight = 100;
   const graphPaddingLeft = 30;
@@ -706,10 +730,9 @@ function HistoryScreen({ tempUnit }) {
     const maxTime = filteredHistory[filteredHistory.length - 1].timestamp;
     const timeRange = maxTime - minTime || 1;
 
-    // Map HR data with Clamping to stay inside graph
     hrPoints = filteredHistory.map(d => {
       const x = ((d.timestamp - minTime) / timeRange) * graphWidth;
-      const clampedHr = Math.max(50, Math.min(130, d.hr)); // Keep between 50 and 130
+      const clampedHr = Math.max(50, Math.min(130, d.hr));
       const y = graphHeight - ((clampedHr - 40) / 100) * graphHeight;
       return { x, y };
     });
