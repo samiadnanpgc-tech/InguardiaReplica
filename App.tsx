@@ -4,7 +4,7 @@ import {
   TouchableOpacity, Switch, Modal, Animated, Easing, Platform,
   Linking, PermissionsAndroid, Alert, ActivityIndicator, PanResponder
 } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect, Ellipse, Pattern } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop, Circle, Rect, Ellipse, Pattern, Line, G } from 'react-native-svg';
 import { BleManager } from 'react-native-ble-plx';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -44,20 +44,9 @@ function Mechanical3DModel() {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        pan.setValue(gestureState.dx);
-      },
-      onPanResponderRelease: () => {
-        Animated.spring(pan, {
-          toValue: 0,
-          friction: 6,
-          tension: 40,
-          useNativeDriver: false
-        }).start();
-      }
+      onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+      onPanResponderMove: (evt, gestureState) => pan.setValue(gestureState.dx),
+      onPanResponderRelease: () => Animated.spring(pan, { toValue: 0, friction: 6, tension: 40, useNativeDriver: false }).start()
     })
   ).current;
 
@@ -69,24 +58,11 @@ function Mechanical3DModel() {
       <Animated.View style={{ transform: [{ translateY }, { rotateZ: rotate }] }}>
         <Svg width="220" height="220" viewBox="0 0 200 200">
           <Defs>
-            <LinearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#2a2c2a" />
-              <Stop offset="1" stopColor="#0d0f0d" />
-            </LinearGradient>
-            <LinearGradient id="frontGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#1a1c1a" />
-              <Stop offset="1" stopColor="#000000" />
-            </LinearGradient>
-            <LinearGradient id="blockTop" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#3a3c3a" />
-              <Stop offset="1" stopColor="#111" />
-            </LinearGradient>
-            <LinearGradient id="blockSide" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#1a1c1a" />
-              <Stop offset="1" stopColor="#050505" />
-            </LinearGradient>
+            <LinearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor="#2a2c2a" /><Stop offset="1" stopColor="#0d0f0d" /></LinearGradient>
+            <LinearGradient id="frontGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#1a1c1a" /><Stop offset="1" stopColor="#000000" /></LinearGradient>
+            <LinearGradient id="blockTop" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor="#3a3c3a" /><Stop offset="1" stopColor="#111" /></LinearGradient>
+            <LinearGradient id="blockSide" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor="#1a1c1a" /><Stop offset="1" stopColor="#050505" /></LinearGradient>
           </Defs>
-
           <Ellipse cx="100" cy="165" rx="75" ry="15" fill="rgba(0,0,0,0.15)" />
           <Path d="M 125 65 L 155 80 L 135 90 L 105 75 Z" fill="url(#blockTop)" />
           <Path d="M 155 80 L 155 140 L 135 150 L 135 90 Z" fill="url(#blockSide)" />
@@ -224,9 +200,7 @@ export default function App() {
   const [screen, setScreen] = useState('live');
   const [toast, setToast] = useState('');
   const [liveData, setLiveData] = useState({ hr: 0, spo: 0, temp: 0, bites: 0, battery: 0, movement: 0 });
-  const [connectedDeviceId, setConnectedDeviceId] = useState(null);
-  
-  // 🔥 NEW: Temperature Unit State (Real conversion)
+  const [connectedDevice, setConnectedDevice] = useState({ id: null, name: 'Unknown Device' });
   const [tempUnit, setTempUnit] = useState('C');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2200); };
@@ -237,16 +211,16 @@ export default function App() {
       const existingDataStr = await AsyncStorage.getItem('@inguardia_history');
       let history = existingDataStr ? JSON.parse(existingDataStr) : [];
       history.push({ ...newData, timestamp: Date.now() });
-      if (history.length > 50) history = history.slice(history.length - 50);
+      if (history.length > 500) history = history.slice(history.length - 500);
       await AsyncStorage.setItem('@inguardia_history', JSON.stringify(history));
     } catch (e) { console.error("History save error:", e); }
   };
 
   const disconnectDevice = async () => {
-    if (connectedDeviceId) {
+    if (connectedDevice.id) {
       try {
-        await bleManager.cancelDeviceConnection(connectedDeviceId);
-        setConnectedDeviceId(null);
+        await bleManager.cancelDeviceConnection(connectedDevice.id);
+        setConnectedDevice({ id: null, name: 'Unknown Device' });
         setPhase('setup');
         showToast('Device disconnected successfully');
       } catch (e) {
@@ -256,14 +230,14 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!connectedDeviceId) return;
-    const sub = bleManager.onDeviceDisconnected(connectedDeviceId, () => {
-      setConnectedDeviceId(null);
+    if (!connectedDevice.id) return;
+    const sub = bleManager.onDeviceDisconnected(connectedDevice.id, () => {
+      setConnectedDevice({ id: null, name: 'Unknown Device' });
       setPhase('setup');
       showToast('Device disconnected');
     });
     return () => sub.remove();
-  }, [connectedDeviceId]);
+  }, [connectedDevice.id]);
 
   return (
     <SafeAreaView style={st.root}>
@@ -272,7 +246,7 @@ export default function App() {
         <SetupFlow
           onComplete={() => setPhase('app')}
           onDataReceived={saveToHistory}
-          onConnected={setConnectedDeviceId}
+          onConnected={setConnectedDevice}
         />
       )}
       {phase === 'app' && (
@@ -283,7 +257,7 @@ export default function App() {
             <DeviceScreen
               toast={showToast}
               liveData={liveData}
-              connectedDeviceId={connectedDeviceId}
+              connectedDevice={connectedDevice}
               onDisconnect={disconnectDevice}
               tempUnit={tempUnit}
               setTempUnit={setTempUnit}
@@ -304,7 +278,6 @@ function SetupFlow({ onComplete, onDataReceived, onConnected }) {
   const [connectingDeviceId, setConnectingDeviceId] = useState(null);
   const [foundDevices, setFoundDevices] = useState([]);
   const [bites, setBites] = useState(0);
-
   const [sensorsReady, setSensorsReady] = useState({ pulse: false, temp: false, bite: false });
 
   const stepRef = useRef(2);
@@ -372,7 +345,7 @@ function SetupFlow({ onComplete, onDataReceived, onConnected }) {
       const connectedDevice = await bleManager.connectToDevice(device.id, { timeout: 15000 });
       await connectedDevice.requestMTU(185);
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      onConnected(connectedDevice.id);
+      onConnected({ id: connectedDevice.id, name: connectedDevice.name || connectedDevice.localName || 'Inguardia IG-1' });
 
       const services = await connectedDevice.services();
       let targetService = null;
@@ -562,7 +535,6 @@ function SetupFlow({ onComplete, onDataReceived, onConnected }) {
 
 function LiveScreen({ data, tempUnit }) {
   const { hr, spo, temp, bites, battery, movement } = data;
-  // 🔥 REAL CONVERSION: Celsius to Fahrenheit
   const displayTemp = tempUnit === 'C' ? temp : (temp * 9/5) + 32;
 
   return (
@@ -582,15 +554,15 @@ function LiveScreen({ data, tempUnit }) {
         </View>
 
         <View style={st.ovTL}>
-          <Text style={st.ovTLTextMain}>Inguardia IG-1 <Text style={st.ovTLTextSub}>FW 2.4.1</Text></Text>
+          <Text style={st.ovTLTextMain}>Inguardia IG-1 <Text style={st.ovTLTextSub}>FW N/A</Text></Text>
         </View>
         
         <View style={st.ovTR}>
           <View style={st.pillDk}>
             <View style={st.battMini}>
-              <View style={[st.battMiniFill, { width: `${battery || 81}%` }]} />
+              <View style={[st.battMiniFill, { width: `${battery || 0}%` }]} />
             </View>
-            <Text style={st.battTxt}>{battery || 81}%</Text>
+            <Text style={st.battTxt}>{battery || 0}%</Text>
           </View>
         </View>
         
@@ -601,7 +573,6 @@ function LiveScreen({ data, tempUnit }) {
         </View>
       </View>
 
-      {/* Heart Rate Card */}
       <View style={st.card}>
         <View style={st.ch}>
           <View style={[st.chIco, { backgroundColor: '#FDE7E8' }]}><PumpingHeart /></View>
@@ -615,7 +586,6 @@ function LiveScreen({ data, tempUnit }) {
       </View>
 
       <View style={st.gridRow}>
-        {/* SpO2 Card */}
         <View style={st.cardHalf}>
           <View style={st.ch}>
             <View style={[st.chIco, { backgroundColor: '#DDF0FB' }]}><Text style={{ fontSize: 14 }}>💧</Text></View>
@@ -627,7 +597,6 @@ function LiveScreen({ data, tempUnit }) {
           <Text style={[st.subText, { marginTop: 10 }]}>Signal <SignalBars strength={3} /> good</Text>
         </View>
 
-        {/* Temperature Card */}
         <View style={st.cardHalf}>
           <View style={st.ch}>
             <View style={[st.chIco, { backgroundColor: '#FDEEE3' }]}><Text style={{ fontSize: 14 }}>🌡️</Text></View>
@@ -647,7 +616,6 @@ function LiveScreen({ data, tempUnit }) {
       </View>
 
       <View style={st.gridRow}>
-        {/* Bite Count Card */}
         <View style={st.cardHalf}>
           <View style={st.ch}>
             <View style={[st.chIco, { backgroundColor: C.mint }]}><Text style={{ fontSize: 14 }}>🦷</Text></View>
@@ -661,7 +629,6 @@ function LiveScreen({ data, tempUnit }) {
           </View>
         </View>
 
-        {/* Battery Card */}
         <View style={st.cardHalf}>
           <View style={st.ch}>
             <View style={[st.chIco, { backgroundColor: '#E6F4EC' }]}><Text style={{ fontSize: 14 }}>⚡</Text></View>
@@ -671,11 +638,10 @@ function LiveScreen({ data, tempUnit }) {
             <View style={st.battShell}><View style={[st.battFill, { width: `${battery}%` }]} /></View>
             <Text style={[st.valNum, { fontSize: 22, marginLeft: 8 }]}>{battery}%</Text>
           </View>
-          <Text style={[st.subText, { marginTop: 6 }]}>≈ 9 h 10 m remaining</Text>
+          <Text style={[st.subText, { marginTop: 6 }]}>≈ {Math.floor(battery / 10)} h remaining</Text>
         </View>
       </View>
 
-      {/* Movement Card */}
       <View style={st.card}>
         <View style={st.ch}>
           <View style={[st.chIco, { backgroundColor: '#FFF2DC' }]}><Text style={{ fontSize: 14 }}>✥</Text></View>
@@ -697,127 +663,241 @@ function LiveScreen({ data, tempUnit }) {
 
 function HistoryScreen({ tempUnit }) {
   const [history, setHistory] = useState([]);
-  const [showReadings, setShowReadings] = useState(false);
+  const [range, setRange] = useState('day');
 
   useEffect(() => {
     const loadHistory = async () => {
       try {
         const data = await AsyncStorage.getItem('@inguardia_history');
-        if (data) setHistory(JSON.parse(data).reverse());
+        if (data) setHistory(JSON.parse(data));
       } catch (e) { console.log("History load error:", e); }
     };
     loadHistory();
   }, []);
 
-  const avgHr = history.length ? Math.round(history.reduce((a, c) => a + c.hr, 0) / history.length) : 0;
-  const avgSpo = history.length ? Math.round(history.reduce((a, c) => a + c.spo, 0) / history.length) : 0;
+  const now = Date.now();
+  const filteredHistory = history.filter(item => {
+    const diff = now - item.timestamp;
+    if (range === 'day') return diff <= 24 * 60 * 60 * 1000;
+    if (range === 'week') return diff <= 7 * 24 * 60 * 60 * 1000;
+    if (range === 'month') return diff <= 30 * 24 * 60 * 60 * 1000;
+    return true;
+  });
+
+  const avgHr = filteredHistory.length ? Math.round(filteredHistory.reduce((a, c) => a + c.hr, 0) / filteredHistory.length) : 0;
+  const minSpo = filteredHistory.length ? Math.min(...filteredHistory.map(d => d.spo)) : 0;
+  const totalBites = filteredHistory.length ? Math.max(...filteredHistory.map(d => d.bites)) : 0;
   
-  // Convert average temp if needed
-  let avgTemp = history.length ? (history.reduce((a, c) => a + c.temp, 0) / history.length) : 0;
-  if (tempUnit === 'F') avgTemp = (avgTemp * 9/5) + 32;
-  
-  const totalBites = history.length ? history[0].bites : 0;
+  let avgTemp = filteredHistory.length ? (filteredHistory.reduce((a, c) => a + c.temp, 0) / filteredHistory.length) : 0;
+  if (tempUnit === 'F' && avgTemp > 0) avgTemp = (avgTemp * 9/5) + 32;
 
-  if (!showReadings) {
-    return (
-      <ScrollView contentContainerStyle={st.scroll}>
-        <View style={st.appbar}><Text style={[st.appTitle, { flex: 1 }]}>History</Text><View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>{history.length} readings</Text></View></View>
+  // Graph Configuration
+  const graphWidth = 260;
+  const graphHeight = 100;
+  const graphPaddingLeft = 30;
+  const graphPaddingRight = 10;
+  const totalGraphWidth = graphWidth + graphPaddingLeft + graphPaddingRight;
 
-        <View style={st.miniRow}>
-          <View style={st.mini}><Text style={st.miniLabel}>Avg Heart Rate</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View></View>
-          <View style={st.mini}><Text style={st.miniLabel}>Avg SpO₂</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgSpo}</Text><Text style={st.miniUnit}>%</Text></View></View>
-        </View>
+  let hrPoints = [];
+  let biteData = Array(24).fill(0);
 
-        <View style={st.miniRow}>
-          <View style={st.mini}><Text style={st.miniLabel}>Latest Bite Count</Text><Text style={st.miniValue}>{totalBites}</Text></View>
-          <View style={st.mini}><Text style={st.miniLabel}>Avg Temperature</Text><View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp.toFixed(1)}</Text><Text style={st.miniUnit}>°{tempUnit}</Text></View></View>
-        </View>
+  if (filteredHistory.length > 0) {
+    const minTime = filteredHistory[0].timestamp;
+    const maxTime = filteredHistory[filteredHistory.length - 1].timestamp;
+    const timeRange = maxTime - minTime || 1;
 
-        <Text style={st.sect}>MORE DETAILS</Text>
-        
-        <View style={st.list}>
-          <TouchableOpacity style={st.rowItem} onPress={() => setShowReadings(true)}>
-            <View style={st.actionIco}><Text style={{ fontSize: 10, fontWeight: 'bold' }}>LOG</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={st.rowTitle}>Recent Readings</Text>
-              <Text style={st.rowSub}>View detailed history logs</Text>
-            </View>
-            <Text style={st.chev}>&gt;</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <View style={{ height: 20 }} />
-      </ScrollView>
-    );
+    // Map HR data with Clamping to stay inside graph
+    hrPoints = filteredHistory.map(d => {
+      const x = ((d.timestamp - minTime) / timeRange) * graphWidth;
+      const clampedHr = Math.max(50, Math.min(130, d.hr)); // Keep between 50 and 130
+      const y = graphHeight - ((clampedHr - 40) / 100) * graphHeight;
+      return { x, y };
+    });
+
+    filteredHistory.forEach(d => {
+      const hour = new Date(d.timestamp).getHours();
+      biteData[hour] = Math.max(biteData[hour], d.bites);
+    });
+    
+    let lastBite = 0;
+    biteData = biteData.map(b => {
+      const diff = b - lastBite;
+      lastBite = b;
+      return diff > 0 ? diff : 0;
+    });
   }
 
+  const maxBite = Math.max(...biteData, 1);
+
+  let hrPath = '';
+  let hrFill = '';
+  if (hrPoints.length > 0) {
+    hrPath = `M ${hrPoints[0].x} ${hrPoints[0].y} ` + hrPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+    hrFill = `${hrPath} L ${graphWidth} ${graphHeight} L 0 ${graphHeight} Z`;
+  }
+
+  const sessionsMap = {};
+  filteredHistory.forEach(item => {
+    const dateStr = new Date(item.timestamp).toDateString();
+    if (!sessionsMap[dateStr]) {
+      sessionsMap[dateStr] = { start: item.timestamp, end: item.timestamp, bites: item.bites, hrSum: 0, count: 0 };
+    }
+    sessionsMap[dateStr].end = item.timestamp;
+    sessionsMap[dateStr].bites = Math.max(sessionsMap[dateStr].bites, item.bites);
+    sessionsMap[dateStr].hrSum += item.hr;
+    sessionsMap[dateStr].count += 1;
+  });
+
+  const recentSessions = Object.keys(sessionsMap).slice(-3).reverse().map(key => {
+    const s = sessionsMap[key];
+    const date = new Date(s.start);
+    const startStr = `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}`;
+    const endDate = new Date(s.end);
+    const endStr = `${endDate.getHours().toString().padStart(2,'0')}:${endDate.getMinutes().toString().padStart(2,'0')}`;
+    const durationHrs = Math.round((s.end - s.start) / (1000 * 60 * 60));
+    const avgHR = Math.round(s.hrSum / s.count);
+    const status = avgHR > 90 ? 'High HR' : 'Normal';
+
+    return { 
+      title: key === new Date().toDateString() ? 'Today' : date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }),
+      time: `${startStr} – ${endStr} · ${durationHrs} h`,
+      bites: s.bites,
+      status
+    };
+  });
+
   return (
-    <View style={{ flex: 1 }}>
+    <ScrollView contentContainerStyle={st.scroll}>
       <View style={st.appbar}>
-        <TouchableOpacity style={st.iconBtn} onPress={() => setShowReadings(false)}>
-          <Text style={st.iconText}>&lt;</Text>
-        </TouchableOpacity>
-        <Text style={[st.appTitle, { flex: 1, textAlign: 'center' }]}>Detailed Logs</Text>
-        <View style={{ width: 40 }} />
+        <Text style={[st.appTitle, { flex: 1 }]}>History</Text>
+        <View style={st.chip}><View style={st.chipDot} /><Text style={st.chipText}>Connected</Text></View>
+        <TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={st.scroll}>
-        <View style={st.historyTable}>
-          <View style={st.historyHeader}>
-            <Text style={[st.historyHeaderTxt, { width: 60 }]}>Time</Text>
-            <Text style={st.historyHeaderTxt}>HR</Text>
-            <Text style={st.historyHeaderTxt}>SpO₂</Text>
-            <Text style={st.historyHeaderTxt}>Temp</Text>
-          </View>
+      <View style={st.tabsWrap}>
+        {['day', 'week', 'month'].map(r => (
+          <TouchableOpacity key={r} style={[st.tabBtn, range === r && st.tabBtnOn]} onPress={() => setRange(r)}>
+            <Text style={[st.tabTxt, range === r && st.tabTxtOn]}>{r.charAt(0).toUpperCase() + r.slice(1)}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-          {history.length === 0 ? (
-            <Text style={{ textAlign: 'center', padding: 20, color: '#5B7A6F' }}>Koi data nahi mila. Pehle device connect karein.</Text>
-          ) : (
-            history.map((item, index) => {
-              const date = new Date(item.timestamp);
-              const timeStr = `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-              const rowTemp = tempUnit === 'C' ? item.temp : (item.temp * 9/5) + 32;
-              return (
-                <View key={index} style={[st.historyRow, index % 2 === 0 && { backgroundColor: '#F9FCFA' }]}>
-                  <Text style={[st.historyCellTxt, { width: 60, fontWeight: '700', color: C.ink }]}>{timeStr}</Text>
-                  <Text style={st.historyCellTxt}>{item.hr}</Text>
-                  <Text style={st.historyCellTxt}>{item.spo}%</Text>
-                  <Text style={st.historyCellTxt}>{rowTemp.toFixed(1)}°</Text>
-                </View>
-              );
-            })
-          )}
+      <View style={st.gridRow}>
+        <View style={st.cardHalf}>
+          <Text style={st.miniLabel}>Avg heart rate</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgHr}</Text><Text style={st.miniUnit}>bpm</Text></View>
         </View>
-        <View style={{ height: 20 }} />
-      </ScrollView>
-    </View>
+        <View style={st.cardHalf}>
+          <Text style={st.miniLabel}>Lowest SpO₂</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{minSpo}</Text><Text style={st.miniUnit}>%</Text></View>
+        </View>
+      </View>
+      <View style={st.gridRow}>
+        <View style={st.cardHalf}>
+          <Text style={st.miniLabel}>Bites</Text>
+          <Text style={st.miniValue}>{totalBites}</Text>
+        </View>
+        <View style={st.cardHalf}>
+          <Text style={st.miniLabel}>Avg temperature</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}><Text style={st.miniValue}>{avgTemp ? avgTemp.toFixed(1) : '0.0'}</Text><Text style={st.miniUnit}>°{tempUnit}</Text></View>
+        </View>
+      </View>
+
+      <View style={[st.card, { overflow: 'hidden' }]}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Text style={st.chTitle}>Heart rate</Text>
+          <Text style={st.chAside}>bpm</Text>
+        </View>
+        <View style={{ height: graphHeight + 20, overflow: 'hidden' }}>
+          <Svg width={totalGraphWidth} height={graphHeight + 20}>
+            <Defs>
+              <LinearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={C.heart} stopOpacity="0.2" />
+                <Stop offset="1" stopColor={C.heart} stopOpacity="0" />
+              </LinearGradient>
+            </Defs>
+            
+            <Line x1={graphPaddingLeft} y1="10" x2={graphPaddingLeft + graphWidth} y2="10" stroke={C.line} strokeWidth="1" />
+            <Line x1={graphPaddingLeft} y1={graphHeight / 2} x2={graphPaddingLeft + graphWidth} y2={graphHeight / 2} stroke={C.line} strokeWidth="1" />
+            <Line x1={graphPaddingLeft} y1={graphHeight} x2={graphPaddingLeft + graphWidth} y2={graphHeight} stroke={C.line} strokeWidth="1" />
+            
+            <Text x="0" y="14" fill={C.ink2} fontSize="10">100</Text>
+            <Text x="5" y={graphHeight / 2 + 4} fill={C.ink2} fontSize="10">80</Text>
+            <Text x="5" y={graphHeight} fill={C.ink2} fontSize="10">60</Text>
+
+            {hrPoints.length > 0 && (
+              <G transform={`translate(${graphPaddingLeft}, 0)`}>
+                <Path d={hrFill} fill="url(#hrGrad)" />
+                <Path d={hrPath} stroke={C.heart} strokeWidth="2" fill="none" strokeLinejoin="round" strokeLinecap="round" />
+                <Circle cx={hrPoints[hrPoints.length-1].x} cy={hrPoints[hrPoints.length-1].y} r="4" fill={C.heart} />
+              </G>
+            )}
+          </Svg>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: -10, paddingHorizontal: 20 }}>
+          <Text style={st.xLabel}>00:00</Text><Text style={st.xLabel}>06:00</Text><Text style={st.xLabel}>12:00</Text><Text style={st.xLabel}>18:00</Text><Text style={st.xLabel}>24:00</Text>
+        </View>
+      </View>
+
+      <View style={st.card}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Text style={st.chTitle}>Bites</Text>
+          <Text style={st.chAside}>most between 00:00 and 07:00</Text>
+        </View>
+        <View style={{ height: 80, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 10 }}>
+          {biteData.map((val, i) => (
+            <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+              <View style={{ width: '70%', height: (val / maxBite) * 70 || 2, backgroundColor: val > maxBite * 0.7 ? C.sea : C.mint, borderRadius: 2 }} />
+            </View>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 10 }}>
+          <Text style={st.xLabel}>00:00</Text><Text style={st.xLabel}>06:00</Text><Text style={st.xLabel}>12:00</Text><Text style={st.xLabel}>18:00</Text><Text style={st.xLabel}>24:00</Text>
+        </View>
+      </View>
+
+      <Text style={st.sect}>RECENT SESSIONS</Text>
+      
+      {recentSessions.length === 0 ? (
+        <Text style={{ textAlign: 'center', padding: 20, color: C.ink2 }}>No sessions recorded yet.</Text>
+      ) : (
+        recentSessions.map((sess, i) => (
+          <View key={i} style={st.sessionCard}>
+            <View style={st.sessionIcon}><Text style={{ fontSize: 16 }}>🌙</Text></View>
+            <View style={{ flex: 1 }}>
+              <Text style={st.sessionTitle}>{sess.title}</Text>
+              <Text style={st.sessionSub}>{sess.time} · {sess.bites} bites</Text>
+            </View>
+            <Text style={[st.sessionStatus, sess.status === 'Normal' ? { color: C.sea } : { color: C.warn }]}>{sess.status}</Text>
+          </View>
+        ))
+      )}
+      
+      <View style={{ height: 30 }} />
+    </ScrollView>
   );
 }
 
-// 🔥 EXACT DEVICE SCREEN UI FROM IMAGE 🔥
-function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect, tempUnit, setTempUnit }) {
+function DeviceScreen({ toast, liveData, connectedDevice, onDisconnect, tempUnit, setTempUnit }) {
   const [live, setLive] = useState(true);
   const [clench, setClench] = useState(true);
   const [autoSync, setAutoSync] = useState(false);
-  const [sampleRate, setSampleRate] = useState('25'); // 10, 25, 50
   const [rssi, setRssi] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const isConnected = connectedDeviceId !== null;
+  const isConnected = connectedDevice.id !== null;
 
   const refreshSignal = async () => {
     if (!isConnected) { toast('Device not connected'); return; }
     try {
       setRefreshing(true);
-      const device = await bleManager.readRSSI(connectedDeviceId);
+      const device = await bleManager.readRSSI(connectedDevice.id);
       setRssi(device.rssi);
       toast(`Signal strength: ${device.rssi} dBm`);
     } catch (e) {
       try {
-        const devices = await bleManager.devices([connectedDeviceId]);
-        if (devices && devices.length > 0 && devices[0].rssi) {
-          setRssi(devices[0].rssi);
-        }
+        const devices = await bleManager.devices([connectedDevice.id]);
+        if (devices && devices.length > 0 && devices[0].rssi) setRssi(devices[0].rssi);
       } catch (err) {}
     } finally {
       setRefreshing(false);
@@ -826,7 +906,6 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect, tempUn
 
   return (
     <ScrollView contentContainerStyle={st.scroll}>
-      {/* Header */}
       <View style={st.appbar}>
         <Text style={[st.appTitle, { flex: 1, fontSize: 26, fontWeight: '900' }]}>Device</Text>
         <View style={[st.chip, !isConnected && { backgroundColor: '#FCE9C8' }]}>
@@ -836,133 +915,74 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect, tempUn
         <TouchableOpacity style={st.iconBtn}><Text style={st.iconText}>⋮</Text></TouchableOpacity>
       </View>
 
-      {/* Hero Card */}
       <View style={st.devHero}>
-        <View style={st.devHeroIcon}>
-          <BrandLogo size={40} color={C.sea} />
-        </View>
+        <View style={st.devHeroIcon}><BrandLogo size={40} color={C.sea} /></View>
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={st.devHeroTitle}>Inguardia IG-1</Text>
-          <Text style={st.devHeroSub}>SN IG1-24-004F2A</Text>
-          <Text style={st.devHeroSub}>{isConnected ? `Connected · ${rssi !== null ? rssi : '-48'} dBm` : 'Disconnected'}</Text>
+          <Text style={st.devHeroTitle}>{connectedDevice.name}</Text>
+          <Text style={st.devHeroSub}>SN N/A</Text>
+          <Text style={st.devHeroSub}>{isConnected ? `Connected · ${rssi !== null ? rssi : '--'} dBm` : 'Disconnected'}</Text>
         </View>
       </View>
 
-      {/* Stats Row */}
       <View style={st.stats3}>
-        <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{liveData.battery || 0}%</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Firmware</Text><Text style={st.stat3Value}>2.4.1</Text></View>
-        <View style={st.stat3}><Text style={st.stat3Label}>Storage</Text><Text style={st.stat3Value}>64%</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Battery</Text><Text style={st.stat3Value}>{liveData.battery ? liveData.battery + '%' : '0%'}</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Firmware</Text><Text style={st.stat3Value}>N/A</Text></View>
+        <View style={st.stat3}><Text style={st.stat3Label}>Storage</Text><Text style={st.stat3Value}>N/A</Text></View>
       </View>
 
-      {/* ACTIONS */}
       <Text style={st.sect}>ACTIONS</Text>
       <View style={st.list}>
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Blinks the green light for 5 s')}>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Hardware does not support this command yet')}>
           <View style={st.actionIco}><Text style={{ fontSize: 16 }}>🎯</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={st.rowTitle}>Find my device</Text>
-            <Text style={st.rowSub}>Blinks the green light for 5 s</Text>
+            <Text style={st.rowSub}>Requires firmware support</Text>
           </View>
           <Text style={st.chev}>&gt;</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Recalibrating sensors...')}>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('Go to Calibration screen to recalibrate')}>
           <View style={st.actionIco}><Text style={{ fontSize: 16 }}>🔄</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={st.rowTitle}>Recalibrate sensors</Text>
-            <Text style={st.rowSub}>Last calibrated today, 9:41</Text>
+            <Text style={st.rowSub}>Please bite 3 times in Setup</Text>
           </View>
           <Text style={st.chev}>&gt;</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={st.rowItem} onPress={() => toast('Checking for firmware update...')}>
+        <TouchableOpacity style={st.rowItem} onPress={() => toast('No update available')}>
           <View style={st.actionIco}><Text style={{ fontSize: 16 }}>⬇️</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={st.rowTitle}>Check for firmware update</Text>
-            <Text style={st.rowSub}>Installed 2.4.1</Text>
+            <Text style={st.rowSub}>Installed N/A</Text>
           </View>
           <Text style={st.chev}>&gt;</Text>
         </TouchableOpacity>
       </View>
 
-      {/* SETTINGS */}
       <Text style={st.sect}>SETTINGS</Text>
       <View style={st.list}>
-        {/* Live Streaming */}
-        <View style={st.rowItem}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>Live streaming</Text>
-            <Text style={st.rowSub}>Send readings to this phone in real time</Text>
-          </View>
-          <Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
-        </View>
-        
-        {/* Clench Alert */}
-        <View style={st.rowItem}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>Clench alert vibration</Text>
-            <Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text>
-          </View>
-          <Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
-        </View>
-
-        {/* Auto-sync */}
-        <View style={st.rowItem}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>Auto-sync</Text>
-            <Text style={st.rowSub}>Back up sessions when on Wi-Fi</Text>
-          </View>
-          <Switch value={autoSync} onValueChange={setAutoSync} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" />
-        </View>
-
-        {/* Sample Rate */}
-        <View style={[st.rowItem, { flexDirection: 'column', alignItems: 'flex-start', paddingBottom: 16 }]}>
-          <Text style={st.rowTitle}>Sample rate</Text>
-          <Text style={[st.rowSub, { marginBottom: 12 }]}>Higher rates use more battery</Text>
-          <View style={{ flexDirection: 'row', backgroundColor: '#F0F4F2', borderRadius: 16, padding: 4, width: '100%' }}>
-            {['10', '25', '50'].map(rate => (
-              <TouchableOpacity 
-                key={rate} 
-                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 12, backgroundColor: sampleRate === rate ? '#FFF' : 'transparent', elevation: sampleRate === rate ? 2 : 0 }}
-                onPress={() => setSampleRate(rate)}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: sampleRate === rate ? C.ink : C.ink2 }}>{rate} Hz</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Live streaming</Text><Text style={st.rowSub}>Send readings to this phone in real time</Text></View><Switch value={live} onValueChange={setLive} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Clench alert vibration</Text><Text style={st.rowSub}>Buzz gently after 5 hard bites in a row</Text></View><Switch value={clench} onValueChange={setClench} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
+        <View style={st.rowItem}><View style={{ flex: 1 }}><Text style={st.rowTitle}>Auto-sync</Text><Text style={st.rowSub}>Back up sessions when on Wi-Fi</Text></View><Switch value={autoSync} onValueChange={setAutoSync} trackColor={{ false: '#C9D8D1', true: C.sea }} thumbColor="#fff" /></View>
       </View>
 
-      {/* UNITS */}
       <Text style={st.sect}>UNITS</Text>
       <View style={st.list}>
         <View style={[st.rowItem, { paddingVertical: 12 }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>Temperature unit</Text>
-          </View>
+          <View style={{ flex: 1 }}><Text style={st.rowTitle}>Temperature unit</Text></View>
           <View style={{ flexDirection: 'row', backgroundColor: '#F0F4F2', borderRadius: 16, padding: 4, width: 120 }}>
-            <TouchableOpacity 
-              style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'C' ? '#FFF' : 'transparent' }}
-              onPress={() => setTempUnit('C')}
-            >
+            <TouchableOpacity style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'C' ? '#FFF' : 'transparent' }} onPress={() => setTempUnit('C')}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: tempUnit === 'C' ? C.sea : C.ink2 }}>°C</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'F' ? '#FFF' : 'transparent' }}
-              onPress={() => setTempUnit('F')}
-            >
+            <TouchableOpacity style={{ flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 12, backgroundColor: tempUnit === 'F' ? '#FFF' : 'transparent' }} onPress={() => setTempUnit('F')}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: tempUnit === 'F' ? C.sea : C.ink2 }}>°F</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
 
-      <TouchableOpacity 
-        style={[st.btnDisconnect, !isConnected && { opacity: 0.5 }]} 
-        onPress={onDisconnect} 
-        disabled={!isConnected}
-      >
+      <TouchableOpacity style={[st.btnDisconnect, !isConnected && { opacity: 0.5 }]} onPress={onDisconnect} disabled={!isConnected}>
         <Text style={st.btnDisconnectText}>Disconnect Device</Text>
       </TouchableOpacity>
 
@@ -971,7 +991,6 @@ function DeviceScreen({ toast, liveData, connectedDeviceId, onDisconnect, tempUn
   );
 }
 
-// 🔥 BOTTOM NAV WITH EMOJIS 🔥
 function BottomNav({ active, onChange }) {
   const items = [
     { key: 'live', label: 'Live', icon: '〰️' }, 
@@ -1005,6 +1024,32 @@ const st = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: C.mint },
   chipDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.sea },
   chipText: { fontSize: 12, fontWeight: '700', color: C.seaDeep },
+  
+  tabsWrap: { flexDirection: 'row', backgroundColor: '#E6F1EC', borderRadius: 20, padding: 4, marginBottom: 16 },
+  tabBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 16 },
+  tabBtnOn: { backgroundColor: '#FFF' },
+  tabTxt: { fontSize: 13, fontWeight: '700', color: C.ink2 },
+  tabTxtOn: { color: C.ink },
+
+  gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  cardHalf: { flex: 1, backgroundColor: C.card, borderRadius: 20, padding: 14, borderWidth: 1, borderColor: C.line, justifyContent: 'center' },
+  miniLabel: { fontSize: 11, fontWeight: '700', color: C.ink2, marginBottom: 4 },
+  miniValue: { fontSize: 24, fontWeight: '900', color: C.ink, letterSpacing: -0.5 },
+  miniUnit: { fontSize: 11, fontWeight: '600', color: C.ink2, marginLeft: 3 },
+
+  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, marginBottom: 10 },
+  chTitle: { fontSize: 13, fontWeight: '700', color: C.ink2 },
+  chAside: { fontSize: 11, fontWeight: '600', color: C.ink2 },
+  xLabel: { fontSize: 10, color: C.ink2, fontWeight: '600' },
+
+  sessionCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, backgroundColor: C.card, borderRadius: 18, borderWidth: 1, borderColor: C.line, marginBottom: 8 },
+  sessionIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
+  sessionTitle: { fontSize: 14, fontWeight: '700', color: C.ink },
+  sessionSub: { fontSize: 11.5, color: C.ink2, marginTop: 2 },
+  sessionStatus: { fontSize: 12, fontWeight: '700' },
+
+  sect: { fontSize: 11, fontWeight: '800', color: C.ink2, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
+  
   stepsBars: { flexDirection: 'row', gap: 6, paddingHorizontal: 20 },
   stepBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: C.line },
   stepBarOn: { backgroundColor: C.sea },
@@ -1049,19 +1094,9 @@ const st = StyleSheet.create({
   battMiniFill: { height: '100%', backgroundColor: C.sea, borderRadius: 1 },
   battTxt: { fontSize: 11, fontWeight: '700', color: C.seaDeep },
 
-  historyTable: { backgroundColor: C.card, borderRadius: 20, borderWidth: 1, borderColor: C.line, overflow: 'hidden' },
-  historyHeader: { flexDirection: 'row', backgroundColor: '#E6F4EC', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: C.line },
-  historyHeaderTxt: { flex: 1, fontSize: 12, fontWeight: '800', color: C.seaDeep },
-  historyRow: { flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#F0F4F2' },
-  historyCellTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: C.ink },
-
-  card: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10 },
-  gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  cardHalf: { flex: 1, backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 6 },
+  cardLive: { backgroundColor: C.card, borderRadius: 24, padding: 14, borderWidth: 1, borderColor: C.line, gap: 8, marginBottom: 10 },
   ch: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   chIco: { width: 26, height: 26, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  chTitle: { fontSize: 12, fontWeight: '700', color: C.ink2 },
-  chAside: { marginLeft: 'auto', fontSize: 11, fontWeight: '600', color: C.ink2 },
   valRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
   valNum: { fontSize: 36, fontWeight: '900', color: C.ink, letterSpacing: -1 },
   valUnit: { fontSize: 13, fontWeight: '700', color: C.ink2 },
@@ -1078,13 +1113,6 @@ const st = StyleSheet.create({
   axisTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.line, position: 'relative', overflow: 'hidden' },
   axisFillLeft: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: C.sea, borderRadius: 3 },
   disclaim: { fontSize: 10.5, color: C.ink2, textAlign: 'center', paddingHorizontal: 20, marginTop: 16, lineHeight: 15 },
-  miniRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  mini: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 20, padding: 12 },
-  miniLabel: { fontSize: 11, fontWeight: '700', color: C.ink2 },
-  miniValue: { fontSize: 22, fontWeight: '900', color: C.ink, letterSpacing: -0.5, marginTop: 4 },
-  miniUnit: { fontSize: 11, fontWeight: '600', color: C.ink2, marginLeft: 3 },
-  sect: { fontSize: 11, fontWeight: '800', color: C.ink2, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
-  sessionIco: { width: 44, height: 34, borderRadius: 11, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
   
   devHero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 24, backgroundColor: C.seaDeep, marginTop: 4 },
   devHeroIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
